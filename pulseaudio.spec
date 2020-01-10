@@ -1,7 +1,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        0.9.21
-Release:        21%{?dist}
+Release:        24%{?dist}
 License:        LGPLv2+
 Group:          System Environment/Daemons
 Source0:        http://0pointer.de/lennart/projects/pulseaudio/pulseaudio-%{version}.tar.gz
@@ -84,6 +84,8 @@ Patch75: 0003-combine-sink-Make-the-latency-range-calculation-easi.patch
 Patch76: 0004-combine-sink-Add-a-convenience-variable.patch
 Patch77: 0005-combine-sink-Fix-the-initial-requested-latency-of-ne.patch
 Patch78: 0006-combine-sink-Rearrange-block_usec-initialization.patch
+Patch79: 0001-profile-sets-remove-missing-paths.patch
+Patch80: 0001-Fix-input-device-for-M-audio-fasttrack-pro.patch
 
 URL:            http://pulseaudio.org/
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -372,6 +374,8 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch76 -p1
 %patch77 -p1
 %patch78 -p1
+%patch79 -p1
+%patch80 -p1
 
 %build
 autoreconf
@@ -621,6 +625,18 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
+* Thu Nov 26 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-24
+- Rebuild for fast
+- Resolves: rhbz#656998
+
+* Thu Nov 26 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-23
+- Fix input device for M-audio fasttrack pro
+- Fixes rhbz#656998
+
+* Thu Feb 12 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-22
+- remove missing paths from extra hdmi profile
+- Resolves: rhbz#1191623
+
 * Tue Feb 03 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-21
 - Add DYNAMIC latency for module-combine
 - Resolves: rhbz#1111375
