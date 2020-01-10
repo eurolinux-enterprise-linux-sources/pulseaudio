@@ -18,12 +18,12 @@ index ccaa494..db6b473 100644
 @@ -129,6 +129,9 @@ priority = 0
  name = output-bass-boost-off
  priority = 10
-
+ 
 +[Element IEC958 Optical Raw]
 +switch = off
 +
  ;;; 'Analog Output'
-
+ 
  [Element Analog Output]
 --
 cgit v0.9.0.2-2-gbebe

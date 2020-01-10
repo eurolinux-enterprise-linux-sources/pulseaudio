@@ -1,7 +1,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        0.9.21
-Release:        14%{?dist}
+Release:        17%{?dist}
 License:        LGPLv2+
 Group:          System Environment/Daemons
 Source0:        http://0pointer.de/lennart/projects/pulseaudio/pulseaudio-%{version}.tar.gz
@@ -75,6 +75,7 @@ Patch66: 0067-socket-client-properly-handle-asyncns-failures.patch
 Patch67: translation-bz575687.patch
 Patch68: translation-bz575687-2.patch
 Patch69: rhbz647797.patch
+Patch70: fix-hdmi.patch
 URL:            http://pulseaudio.org/
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:  m4
@@ -353,6 +354,7 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch67 -p1
 %patch68 -p2
 %patch69 -p1
+%patch70 -p1
 
 %build
 autoreconf
@@ -602,8 +604,20 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
-* Tue Jul  3 2012 Lennart Poettering <lpoetter@redhat.com> - 0.9.21-14
-- Resolves: rhbz#836139
+* Tue Jun 03 2014 Ray Strode <rstrode@redhat.com> 0.9.21-17
+- Fix file list in Makefile
+  Related: rhbz#1095750
+
+* Mon Jun 02 2014 Ray Strode <rstrode@redhat.com> - 0.9.21-16
+- Fix HDMI audio for cards with multiple devices
+  Resolves: rhbz#1095750
+
+* Tue Jul  3 2012 Lennart Poettering <lpoetter@redhat.com> - 0.9.21-15
+- Use the right patch
+- Resolves: rhbz#647797
+
+* Tue Jun 26 2012 Lennart Poettering <lpoetter@redhat.com> - 0.9.21-14
+- Resolves: rhbz#647797
 
 * Wed Aug 11 2010 Lennart Poettering <lennart@poettering.net> - 0.9.21-13
 - add missing patch to CVS
