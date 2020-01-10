@@ -1,7 +1,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        0.9.21
-Release:        17%{?dist}
+Release:        21%{?dist}
 License:        LGPLv2+
 Group:          System Environment/Daemons
 Source0:        http://0pointer.de/lennart/projects/pulseaudio/pulseaudio-%{version}.tar.gz
@@ -76,6 +76,15 @@ Patch67: translation-bz575687.patch
 Patch68: translation-bz575687-2.patch
 Patch69: rhbz647797.patch
 Patch70: fix-hdmi.patch
+Patch71: 0001-rules-remove-stray-goto.patch
+Patch72: 0001-man-improve-manpage.patch
+Patch73: 0001-combine-sink-rework-output-add-remove.patch
+Patch74: 0002-combine-sink-add-support-for-DYNAMIC_LATENCY.patch
+Patch75: 0003-combine-sink-Make-the-latency-range-calculation-easi.patch
+Patch76: 0004-combine-sink-Add-a-convenience-variable.patch
+Patch77: 0005-combine-sink-Fix-the-initial-requested-latency-of-ne.patch
+Patch78: 0006-combine-sink-Rearrange-block_usec-initialization.patch
+
 URL:            http://pulseaudio.org/
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:  m4
@@ -355,6 +364,14 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch68 -p2
 %patch69 -p1
 %patch70 -p1
+%patch71 -p1
+%patch72 -p1
+%patch73 -p1
+%patch74 -p1
+%patch75 -p1
+%patch76 -p1
+%patch77 -p1
+%patch78 -p1
 
 %build
 autoreconf
@@ -604,6 +621,21 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
+* Tue Feb 03 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-21
+- Add DYNAMIC latency for module-combine
+- Resolves: rhbz#1111375
+
+* Tue Feb 03 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-20
+- improve manpage
+  Resolves: rhbz#812444
+
+* Tue Jan 20 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-19
+- bump version for fastrack build
+
+* Mon Jun 23 2014 Wim Taymans <wtaymans@redhat.com> 0.9.21-18
+- Remove leftover goto from merge
+  Related: rhbz#1110950
+
 * Tue Jun 03 2014 Ray Strode <rstrode@redhat.com> 0.9.21-17
 - Fix file list in Makefile
   Related: rhbz#1095750
