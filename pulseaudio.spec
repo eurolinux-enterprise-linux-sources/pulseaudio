@@ -1,7 +1,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        0.9.21
-Release:        24%{?dist}
+Release:        26%{?dist}
 License:        LGPLv2+
 Group:          System Environment/Daemons
 Source0:        http://0pointer.de/lennart/projects/pulseaudio/pulseaudio-%{version}.tar.gz
@@ -86,6 +86,10 @@ Patch77: 0005-combine-sink-Fix-the-initial-requested-latency-of-ne.patch
 Patch78: 0006-combine-sink-Rearrange-block_usec-initialization.patch
 Patch79: 0001-profile-sets-remove-missing-paths.patch
 Patch80: 0001-Fix-input-device-for-M-audio-fasttrack-pro.patch
+Patch81: 0001-Get-rid-of-some-warnings-Wunused-result.patch
+Patch82: 0002-core-util-Call-fchown-only-when-necessary.patch
+Patch83: 0003-core-util-Remove-redundant-check-of-directory-permis.patch
+
 
 URL:            http://pulseaudio.org/
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -133,6 +137,7 @@ Obsoletes:      pulseaudio-devel
 Obsoletes:      pulseaudio-core-libs
 Provides:       pulseaudio-core-libs
 Requires:       udev >= 145-3
+Requires:       %{name}-libs = %{version}-%{release}
 Requires:       rtkit
 Requires:       kernel >= 2.6.30
 
@@ -175,7 +180,7 @@ X11 bell and security modules for the PulseAudio sound server.
 Summary:        Zeroconf support for the PulseAudio sound server
 Group:          System Environment/Daemons
 Requires:       %{name} = %{version}-%{release}
-Requires:       pulseaudio-utils
+Requires:       %{name}-utils
 
 %description module-zeroconf
 Zeroconf publishing module for the PulseAudio sound server.
@@ -239,6 +244,7 @@ License:        LGPLv2+
 Group:          System Environment/Libraries
 Provides:       pulseaudio-lib-glib2
 Obsoletes:      pulseaudio-lib-glib2
+Requires:       %{name}-libs = %{version}-%{release}
 
 %description libs-glib2
 This package contains bindings to integrate the PulseAudio client library with
@@ -250,6 +256,7 @@ License:        LGPLv2+
 Group:      System Environment/Libraries
 Provides:       pulseaudio-lib-zeroconf
 Obsoletes:      pulseaudio-lib-zeroconf
+Requires:       %{name}-libs = %{version}-%{release}
 
 %description libs-zeroconf
 This package contains the runtime libraries and tools that allow PulseAudio
@@ -376,6 +383,9 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch78 -p1
 %patch79 -p1
 %patch80 -p1
+%patch81 -p1
+%patch82 -p1
+%patch83 -p1
 
 %build
 autoreconf
@@ -625,6 +635,14 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
+* Wed Sep 28 2016 Wim Taymans <wtaymans@redhat.com> 0.9.21-26
+- Add more Requires
+- Resolves: rhbz#1336565
+
+* Tue Sep 20 2016 Wim Taymans <wtaymans@redhat.com> 0.9.21-25
+- Fix some checks when creating secure directories
+- Resolves: rhbz#1336565
+
 * Thu Nov 26 2015 Wim Taymans <wtaymans@redhat.com> 0.9.21-24
 - Rebuild for fast
 - Resolves: rhbz#656998
