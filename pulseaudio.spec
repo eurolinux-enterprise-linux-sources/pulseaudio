@@ -10,7 +10,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        %{pa_major}%{?pa_minor:.%{pa_minor}}
-Release:        7%{?snap:.%{snap}git%{shortcommit}}%{?dist}
+Release:        8%{?snap:.%{snap}git%{shortcommit}}%{?dist}
 License:        LGPLv2+
 URL:            http://www.freedesktop.org/wiki/Software/PulseAudio
 Source0:        http://freedesktop.org/software/pulseaudio/releases/pulseaudio-%{version}.tar.xz
@@ -25,6 +25,7 @@ Source5:        default.pa-for-gdm
 Patch101: 0001-Avoid-multilib-conflict-in-usr-bin-padsp.patch
 Patch102: 0002-Add-korean-translation.patch
 Patch103: pulseaudio-autostart.patch
+Patch104: 0001-update-translations.patch
 
 BuildRequires:  automake libtool
 BuildRequires:  pkgconfig(bash-completion)
@@ -216,6 +217,7 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch101 -p1 -b .101
 %patch102 -p1 -b .102
 %patch103 -p1 -b .103
+%patch104 -p1 -b .104
 
 sed -i.no_consolekit -e \
   's/^load-module module-console-kit/#load-module module-console-kit/' \
@@ -540,6 +542,10 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
+* Mon Jun 27 2016 Wim Taymans <wtaymans@redhat.com> - 6.0-8
+- update translations
+- Resolves: #1272897
+
 * Mon Jun 22 2015 Rex Dieter <rdieter@fedoraproject.org> - 6.0-7
 - better autostart.patch, handle case were autospawn is disabled
   (or otherwise doesn't work, like for root user)
