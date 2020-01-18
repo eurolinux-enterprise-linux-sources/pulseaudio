@@ -35,7 +35,6 @@ asyncq-test
 channelmap-test
 close-test
 connect-stress
-core-util-test
 cpulimit-test
 cpulimit-test2
 cpu-sconv-test
@@ -50,8 +49,6 @@ gtk-test
 hook-list-test
 interpol-test
 ipacl-test
-json-test
-lfe-filter-test
 lock-autospawn-test
 lo-latency-test
 mainloop-test

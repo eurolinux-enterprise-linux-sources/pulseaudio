@@ -33,7 +33,6 @@
 #include <pulse/fork-detect.h>
 
 #include <pulsecore/pstream-util.h>
-#include <pulsecore/sample-util.h>
 #include <pulsecore/log.h>
 #include <pulsecore/hashmap.h>
 #include <pulsecore/macro.h>
@@ -988,29 +987,19 @@ static void patch_buffer_attr(pa_stream *s, pa_buffer_attr *attr, pa_stream_flag
 
     if ((e = getenv("PULSE_LATENCY_MSEC"))) {
         uint32_t ms;
-        pa_sample_spec ss;
-
-        pa_sample_spec_init(&ss);
-
-        if (pa_sample_spec_valid(&s->sample_spec))
-            ss = s->sample_spec;
-        else if (s->n_formats == 1)
-            pa_format_info_to_sample_spec(s->req_formats[0], &ss, NULL);
 
         if (pa_atou(e, &ms) < 0 || ms <= 0)
             pa_log_debug("Failed to parse $PULSE_LATENCY_MSEC: %s", e);
-        else if (!pa_sample_spec_valid(&s->sample_spec))
-            pa_log_debug("Ignoring $PULSE_LATENCY_MSEC: %s (invalid sample spec)", e);
         else {
             attr->maxlength = (uint32_t) -1;
-            attr->tlength = pa_usec_to_bytes(ms * PA_USEC_PER_MSEC, &ss);
+            attr->tlength = pa_usec_to_bytes(ms * PA_USEC_PER_MSEC, &s->sample_spec);
             attr->minreq = (uint32_t) -1;
             attr->prebuf = (uint32_t) -1;
             attr->fragsize = attr->tlength;
-
-            if (flags)
-                *flags |= PA_STREAM_ADJUST_LATENCY;
         }
+
+        if (flags)
+            *flags |= PA_STREAM_ADJUST_LATENCY;
     }
 
     if (s->context->version >= 13)
@@ -1138,16 +1127,18 @@ void pa_create_stream_callback(pa_pdispatch *pd, uint32_t command, uint32_t tag,
         || s->context->version >= 22) {
 
         pa_format_info *f = pa_format_info_new();
+        pa_tagstruct_get_format_info(t, f);
 
-        if (pa_tagstruct_get_format_info(t, f) < 0 || !pa_format_info_valid(f)) {
+        if (pa_format_info_valid(f))
+            s->format = f;
+        else {
             pa_format_info_free(f);
             if (s->n_formats > 0) {
                 /* We used the extended API, so we should have got back a proper format */
                 pa_context_fail(s->context, PA_ERR_PROTOCOL);
                 goto finish;
             }
-        } else
-            s->format = f;
+        }
     }
 
     if (!pa_tagstruct_eof(t)) {
@@ -1533,12 +1524,8 @@ int pa_stream_write_ext_free(
                 chunk.length = t_length;
             } else {
                 void *d;
-                size_t blk_size_max;
 
-                /* Break large audio streams into _aligned_ blocks or the
-                 * other endpoint will happily discard them upon arrival. */
-                blk_size_max = pa_frame_align(pa_mempool_block_size_max(s->context->mempool), &s->sample_spec);
-                chunk.length = PA_MIN(t_length, blk_size_max);
+                chunk.length = PA_MIN(t_length, pa_mempool_block_size_max(s->context->mempool));
                 chunk.memblock = pa_memblock_new(s->context->mempool, chunk.length);
 
                 d = pa_memblock_acquire(chunk.memblock);

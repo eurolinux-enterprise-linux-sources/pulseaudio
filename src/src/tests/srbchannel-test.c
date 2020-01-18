@@ -34,36 +34,27 @@ static unsigned packets_received;
 static unsigned packets_checksum;
 static size_t packets_length;
 
-static void packet_received(pa_pstream *p, pa_packet *packet, pa_cmsg_ancil_data *ancil_data, void *userdata) {
-    const uint8_t *pdata;
-    size_t plen;
+static void packet_received(pa_pstream *p, pa_packet *packet, const pa_cmsg_ancil_data *ancil_data, void *userdata) {
     unsigned i;
-
-    pdata = pa_packet_data(packet, &plen);
-    fail_unless(packets_length == plen);
-
+    fail_unless(packets_length == packet->length);
     packets_received++;
-    for (i = 0; i < plen; i++)
-        packets_checksum += pdata[i];
+    for (i = 0; i < packet->length; i++)
+        packets_checksum += packet->data[i];
 }
 
 static void packet_test(unsigned npackets, size_t plength, pa_mainloop *ml, pa_pstream *p1, pa_pstream *p2) {
     pa_packet *packet = pa_packet_new(plength);
     unsigned i;
     unsigned psum = 0, totalsum = 0;
-    uint8_t *pdata;
-    size_t plen;
-
     pa_log_info("Sending %d packets of length %zd", npackets, plength);
     packets_received = 0;
     packets_checksum = 0;
     packets_length = plength;
     pa_pstream_set_receive_packet_callback(p2, packet_received, NULL);
 
-    pdata = (uint8_t *) pa_packet_data(packet, &plen);
-    for (i = 0; i < plen; i++) {
-        pdata[i] = i;
-        psum += pdata[i];
+    for (i = 0; i < plength; i++) {
+        packet->data[i] = i;
+        psum += packet->data[i];
     }
 
     for (i = 0; i < npackets; i++) {
@@ -85,7 +76,7 @@ START_TEST (srbchannel_test) {
     int pipefd[4];
 
     pa_mainloop *ml = pa_mainloop_new();
-    pa_mempool *mp = pa_mempool_new(PA_MEM_TYPE_SHARED_POSIX, 0, true);
+    pa_mempool *mp = pa_mempool_new(true, 0);
     pa_iochannel *io1, *io2;
     pa_pstream *p1, *p2;
     pa_srbchannel *sr1, *sr2;
@@ -116,7 +107,7 @@ START_TEST (srbchannel_test) {
 
     pa_pstream_unref(p1);
     pa_pstream_unref(p2);
-    pa_mempool_unref(mp);
+    pa_mempool_free(mp);
     pa_mainloop_free(ml);
 }
 END_TEST

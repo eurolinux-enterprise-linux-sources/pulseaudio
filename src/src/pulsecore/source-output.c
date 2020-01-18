@@ -396,7 +396,6 @@ int pa_source_output_new(
                         core->mempool,
                         &data->source->sample_spec, &data->source->channel_map,
                         &data->sample_spec, &data->channel_map,
-                        core->lfe_crossover_freq,
                         data->resample_method,
                         ((data->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) ? PA_RESAMPLER_VARIABLE_RATE : 0) |
                         ((data->flags & PA_SOURCE_OUTPUT_NO_REMAP) ? PA_RESAMPLER_NO_REMAP : 0) |
@@ -548,8 +547,7 @@ static void source_output_set_state(pa_source_output *o, pa_source_output_state_
 /* Called from main context */
 void pa_source_output_unlink(pa_source_output*o) {
     bool linked;
-
-    pa_source_output_assert_ref(o);
+    pa_assert(o);
     pa_assert_ctl_context();
 
     /* See pa_sink_unlink() for a couple of comments how this function
@@ -591,16 +589,16 @@ void pa_source_output_unlink(pa_source_output*o) {
 
     reset_callbacks(o);
 
+    if (linked) {
+        pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT|PA_SUBSCRIPTION_EVENT_REMOVE, o->index);
+        pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_UNLINK_POST], o);
+    }
+
     if (o->source) {
         if (PA_SOURCE_IS_LINKED(pa_source_get_state(o->source)))
             pa_source_update_status(o->source);
 
         o->source = NULL;
-    }
-
-    if (linked) {
-        pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT|PA_SUBSCRIPTION_EVENT_REMOVE, o->index);
-        pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_UNLINK_POST], o);
     }
 
     pa_core_maybe_vacuum(o->core);
@@ -615,7 +613,9 @@ static void source_output_free(pa_object* mo) {
     pa_assert(o);
     pa_assert_ctl_context();
     pa_assert(pa_source_output_refcnt(o) == 0);
-    pa_assert(!PA_SOURCE_OUTPUT_IS_LINKED(o->state));
+
+    if (PA_SOURCE_OUTPUT_IS_LINKED(o->state))
+        pa_source_output_unlink(o);
 
     pa_log_info("Freeing output %u \"%s\"", o->index,
                 o->proplist ? pa_strnull(pa_proplist_gets(o->proplist, PA_PROP_MEDIA_NAME)) : "");
@@ -791,14 +791,14 @@ void pa_source_output_push(pa_source_output *o, const pa_memchunk *chunk) {
                 pa_volume_memchunk(&qchunk, &o->source->sample_spec, &o->thread_info.soft_volume);
         }
 
-        if (nvfs) {
-            pa_memchunk_make_writable(&qchunk, 0);
-            pa_volume_memchunk(&qchunk, &o->source->sample_spec, &o->volume_factor_source);
-        }
+        if (!o->thread_info.resampler) {
+            if (nvfs) {
+                pa_memchunk_make_writable(&qchunk, 0);
+                pa_volume_memchunk(&qchunk, &o->thread_info.sample_spec, &o->volume_factor_source);
+            }
 
-        if (!o->thread_info.resampler)
             o->push(o, &qchunk);
-        else {
+        } else {
             pa_memchunk rchunk;
 
             if (mbs == 0)
@@ -809,8 +809,14 @@ void pa_source_output_push(pa_source_output *o, const pa_memchunk *chunk) {
 
             pa_resampler_run(o->thread_info.resampler, &qchunk, &rchunk);
 
-            if (rchunk.length > 0)
+            if (rchunk.length > 0) {
+                if (nvfs) {
+                    pa_memchunk_make_writable(&rchunk, 0);
+                    pa_volume_memchunk(&rchunk, &o->thread_info.sample_spec, &o->volume_factor_source);
+                }
+
                 o->push(o, &rchunk);
+            }
 
             if (rchunk.memblock)
                 pa_memblock_unref(rchunk.memblock);
@@ -844,7 +850,7 @@ void pa_source_output_process_rewind(pa_source_output *o, size_t nbytes /* in so
             o->process_rewind(o, nbytes);
 
         if (o->thread_info.resampler)
-            pa_resampler_rewind(o->thread_info.resampler, nbytes);
+            pa_resampler_reset(o->thread_info.resampler);
 
     } else
         pa_memblockq_rewind(o->thread_info.delay_memblockq, nbytes);
@@ -1077,124 +1083,17 @@ void pa_source_output_set_mute(pa_source_output *o, bool mute, bool save) {
     pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_MUTE_CHANGED], o);
 }
 
-void pa_source_output_set_property(pa_source_output *o, const char *key, const char *value) {
-    char *old_value = NULL;
-    const char *new_value;
-
-    pa_assert(o);
-    pa_assert(key);
-
-    if (pa_proplist_contains(o->proplist, key)) {
-        old_value = pa_xstrdup(pa_proplist_gets(o->proplist, key));
-        if (value && old_value && pa_streq(value, old_value))
-            goto finish;
-
-        if (!old_value)
-            old_value = pa_xstrdup("(data)");
-    } else {
-        if (!value)
-            goto finish;
-
-        old_value = pa_xstrdup("(unset)");
-    }
-
-    if (value) {
-        pa_proplist_sets(o->proplist, key, value);
-        new_value = value;
-    } else {
-        pa_proplist_unset(o->proplist, key);
-        new_value = "(unset)";
-    }
-
-    if (PA_SOURCE_OUTPUT_IS_LINKED(o->state)) {
-        pa_log_debug("Source output %u: proplist[%s]: %s -> %s", o->index, key, old_value, new_value);
-        pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_PROPLIST_CHANGED], o);
-        pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT | PA_SUBSCRIPTION_EVENT_CHANGE, o->index);
-    }
-
-finish:
-    pa_xfree(old_value);
-}
-
-void pa_source_output_set_property_arbitrary(pa_source_output *o, const char *key, const uint8_t *value, size_t nbytes) {
-    const uint8_t *old_value;
-    size_t old_nbytes;
-    const char *old_value_str;
-    const char *new_value_str;
-
-    pa_assert(o);
-    pa_assert(key);
-
-    if (pa_proplist_get(o->proplist, key, (const void **) &old_value, &old_nbytes) >= 0) {
-        if (value && nbytes == old_nbytes && !memcmp(value, old_value, nbytes))
-            return;
-
-        old_value_str = "(data)";
-
-    } else {
-        if (!value)
-            return;
-
-        old_value_str = "(unset)";
-    }
-
-    if (value) {
-        pa_proplist_set(o->proplist, key, value, nbytes);
-        new_value_str = "(data)";
-    } else {
-        pa_proplist_unset(o->proplist, key);
-        new_value_str = "(unset)";
-    }
-
-    if (PA_SOURCE_OUTPUT_IS_LINKED(o->state)) {
-        pa_log_debug("Source output %u: proplist[%s]: %s -> %s", o->index, key, old_value_str, new_value_str);
-        pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_PROPLIST_CHANGED], o);
-        pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT | PA_SUBSCRIPTION_EVENT_CHANGE, o->index);
-    }
-}
-
 /* Called from main thread */
 void pa_source_output_update_proplist(pa_source_output *o, pa_update_mode_t mode, pa_proplist *p) {
-    void *state;
-    const char *key;
-    const uint8_t *value;
-    size_t nbytes;
-
     pa_source_output_assert_ref(o);
-    pa_assert(p);
     pa_assert_ctl_context();
 
-    switch (mode) {
-        case PA_UPDATE_SET: {
-            /* Delete everything that is not in p. */
-            for (state = NULL; (key = pa_proplist_iterate(o->proplist, &state));) {
-                if (!pa_proplist_contains(p, key))
-                    pa_source_output_set_property(o, key, NULL);
-            }
+    if (p)
+        pa_proplist_update(o->proplist, mode, p);
 
-            /* Fall through. */
-        }
-
-        case PA_UPDATE_REPLACE: {
-            for (state = NULL; (key = pa_proplist_iterate(p, &state));) {
-                pa_proplist_get(p, key, (const void **) &value, &nbytes);
-                pa_source_output_set_property_arbitrary(o, key, value, nbytes);
-            }
-
-            break;
-        }
-
-        case PA_UPDATE_MERGE: {
-            for (state = NULL; (key = pa_proplist_iterate(p, &state));) {
-                if (pa_proplist_contains(o->proplist, key))
-                    continue;
-
-                pa_proplist_get(p, key, (const void **) &value, &nbytes);
-                pa_source_output_set_property_arbitrary(o, key, value, nbytes);
-            }
-
-            break;
-        }
+    if (PA_SOURCE_OUTPUT_IS_LINKED(o->state)) {
+        pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_PROPLIST_CHANGED], o);
+        pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT|PA_SUBSCRIPTION_EVENT_CHANGE, o->index);
     }
 }
 
@@ -1223,6 +1122,31 @@ int pa_source_output_set_rate(pa_source_output *o, uint32_t rate) {
 
     pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT|PA_SUBSCRIPTION_EVENT_CHANGE, o->index);
     return 0;
+}
+
+/* Called from main context */
+void pa_source_output_set_name(pa_source_output *o, const char *name) {
+    const char *old;
+    pa_assert_ctl_context();
+    pa_source_output_assert_ref(o);
+
+    if (!name && !pa_proplist_contains(o->proplist, PA_PROP_MEDIA_NAME))
+        return;
+
+    old = pa_proplist_gets(o->proplist, PA_PROP_MEDIA_NAME);
+
+    if (old && name && pa_streq(old, name))
+        return;
+
+    if (name)
+        pa_proplist_sets(o->proplist, PA_PROP_MEDIA_NAME, name);
+    else
+        pa_proplist_unset(o->proplist, PA_PROP_MEDIA_NAME);
+
+    if (PA_SOURCE_OUTPUT_IS_LINKED(o->state)) {
+        pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_PROPLIST_CHANGED], o);
+        pa_subscription_post(o->core, PA_SUBSCRIPTION_EVENT_SOURCE_OUTPUT|PA_SUBSCRIPTION_EVENT_CHANGE, o->index);
+    }
 }
 
 /* Called from main context */
@@ -1268,9 +1192,6 @@ bool pa_source_output_may_move_to(pa_source_output *o, pa_source *dest) {
     if (dest == o->source)
         return true;
 
-    if (dest->unlink_requested)
-        return false;
-
     if (!pa_source_output_may_move(o))
         return false;
 
@@ -1308,8 +1229,6 @@ int pa_source_output_start_move(pa_source_output *o) {
     if ((r = pa_hook_fire(&o->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_MOVE_START], o)) < 0)
         return r;
 
-    pa_log_debug("Starting to move source output %u from '%s'", (unsigned) o->index, o->source->name);
-
     origin = o->source;
 
     pa_idxset_remove_by_data(o->source->outputs, o, NULL);
@@ -1328,9 +1247,6 @@ int pa_source_output_start_move(pa_source_output *o) {
     pa_assert_se(pa_asyncmsgq_send(o->source->asyncmsgq, PA_MSGOBJECT(o->source), PA_SOURCE_MESSAGE_REMOVE_OUTPUT, o, 0, NULL) == 0);
 
     pa_source_update_status(o->source);
-
-    pa_cvolume_remap(&o->volume_factor_source, &o->source->channel_map, &o->channel_map);
-
     o->source = NULL;
 
     pa_source_output_unref(o);
@@ -1709,7 +1625,6 @@ int pa_source_output_update_rate(pa_source_output *o) {
         new_resampler = pa_resampler_new(o->core->mempool,
                                      &o->source->sample_spec, &o->source->channel_map,
                                      &o->sample_spec, &o->channel_map,
-                                     o->core->lfe_crossover_freq,
                                      o->requested_resample_method,
                                      ((o->flags & PA_SOURCE_OUTPUT_VARIABLE_RATE) ? PA_RESAMPLER_VARIABLE_RATE : 0) |
                                      ((o->flags & PA_SOURCE_OUTPUT_NO_REMAP) ? PA_RESAMPLER_NO_REMAP : 0) |
@@ -1751,30 +1666,6 @@ int pa_source_output_update_rate(pa_source_output *o) {
     pa_log_debug("Updated resampler for source output %d", o->index);
 
     return 0;
-}
-
-/* Called from the IO thread. */
-void pa_source_output_attach(pa_source_output *o) {
-    pa_assert(o);
-    pa_assert(!o->thread_info.attached);
-
-    o->thread_info.attached = true;
-
-    if (o->attach)
-        o->attach(o);
-}
-
-/* Called from the IO thread. */
-void pa_source_output_detach(pa_source_output *o) {
-    pa_assert(o);
-
-    if (!o->thread_info.attached)
-        return;
-
-    o->thread_info.attached = false;
-
-    if (o->detach)
-        o->detach(o);
 }
 
 /* Called from the main thread. */

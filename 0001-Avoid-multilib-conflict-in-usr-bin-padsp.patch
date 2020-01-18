@@ -1,0 +1,41 @@
+From f8dae724a5c322b060f00c4091aa51050c073cfc Mon Sep 17 00:00:00 2001
+From: Wim Taymans <wtaymans@redhat.com>
+Date: Thu, 6 Feb 2014 12:41:58 +0100
+Subject: [PATCH 1/2] Avoid multilib conflict in /usr/bin/padsp
+
+Related: #884146
+---
+ src/utils/padsp.in | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/src/utils/padsp.in b/src/utils/padsp.in
+index 3430a65..9511e2c 100644
+--- a/src/utils/padsp.in
++++ b/src/utils/padsp.in
+@@ -73,10 +73,21 @@ done
+ 
+ shift $(( $OPTIND - 1 ))
+ 
++ARCH=$(uname -m)
++
++case $ARCH in
++  x86_64 | sparc64 | s390x | ppc64)
++  LIB_DIR=/usr/lib64
++  ;;
++  *)
++  LIB_DIR=/usr/lib
++  ;;
++esac
++
+ if [ x"$LD_PRELOAD" = x ] ; then
+-   LD_PRELOAD="@pkglibdir@/libpulsedsp.so"
++   LD_PRELOAD="$LIB_DIR/pulseaudio/libpulsedsp.so"
+ else
+-   LD_PRELOAD="$LD_PRELOAD @pkglibdir@/libpulsedsp.so"
++   LD_PRELOAD="$LD_PRELOAD $LIB_DIR/pulseaudio/libpulsedsp.so"
+ fi
+ 
+ export LD_PRELOAD
+-- 
+2.1.0
+

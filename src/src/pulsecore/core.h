@@ -20,10 +20,11 @@
   along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
 ***/
 
-#include <pulsecore/typedefs.h>
 #include <pulse/mainloop-api.h>
 #include <pulse/sample.h>
 #include <pulsecore/cpu.h>
+
+typedef struct pa_core pa_core;
 
 /* This is a bitmask that encodes the cause why a sink/source is
  * suspended. */
@@ -118,24 +119,13 @@ typedef enum pa_core_hook {
     PA_CORE_HOOK_CLIENT_PROPLIST_CHANGED,
     PA_CORE_HOOK_CLIENT_SEND_EVENT,
     PA_CORE_HOOK_CARD_NEW,
-    PA_CORE_HOOK_CARD_CHOOSE_INITIAL_PROFILE,
     PA_CORE_HOOK_CARD_PUT,
     PA_CORE_HOOK_CARD_UNLINK,
-    PA_CORE_HOOK_CARD_PREFERRED_PORT_CHANGED,
     PA_CORE_HOOK_CARD_PROFILE_CHANGED,
     PA_CORE_HOOK_CARD_PROFILE_ADDED,
     PA_CORE_HOOK_CARD_PROFILE_AVAILABLE_CHANGED,
-    PA_CORE_HOOK_CARD_SUSPEND_CHANGED,
     PA_CORE_HOOK_PORT_AVAILABLE_CHANGED,
     PA_CORE_HOOK_PORT_LATENCY_OFFSET_CHANGED,
-    PA_CORE_HOOK_DEFAULT_SINK_CHANGED,
-    PA_CORE_HOOK_DEFAULT_SOURCE_CHANGED,
-    PA_CORE_HOOK_MODULE_NEW,
-    PA_CORE_HOOK_MODULE_PROPLIST_CHANGED,
-    PA_CORE_HOOK_MODULE_UNLINK,
-    PA_CORE_HOOK_SAMPLE_CACHE_NEW,
-    PA_CORE_HOOK_SAMPLE_CACHE_CHANGED,
-    PA_CORE_HOOK_SAMPLE_CACHE_UNLINK,
     PA_CORE_HOOK_MAX
 } pa_core_hook_t;
 
@@ -170,7 +160,6 @@ struct pa_core {
     unsigned default_n_fragments, default_fragment_size_msec;
     unsigned deferred_volume_safety_margin_usec;
     int deferred_volume_extra_delay_usec;
-    unsigned lfe_crossover_freq;
 
     pa_defer_event *module_defer_unload_event;
     pa_hashmap *modules_pending_unload; /* pa_module -> pa_module (hashmap-as-a-set) */
@@ -180,13 +169,10 @@ struct pa_core {
     PA_LLIST_HEAD(pa_subscription_event, subscription_event_queue);
     pa_subscription_event *subscription_event_last;
 
-    /* The mempool is used for data we write to, it's readonly for the client. */
-    pa_mempool *mempool;
-
-    /* Shared memory size, as specified either by daemon configuration
-     * or PA daemon defaults (~ 64 MiB). */
-    size_t shm_size;
-
+    /* The mempool is used for data we write to, it's readonly for the client.
+       The rw_mempool is used for data writable by both server and client (and
+       can be NULL in some cases). */
+    pa_mempool *mempool, *rw_mempool;
     pa_silence_cache silence_cache;
 
     pa_time_event *exit_event;
@@ -221,7 +207,7 @@ enum {
     PA_CORE_MESSAGE_MAX
 };
 
-pa_core* pa_core_new(pa_mainloop_api *m, bool shared, bool enable_memfd, size_t shm_size);
+pa_core* pa_core_new(pa_mainloop_api *m, bool shared, size_t shm_size);
 
 /* Check whether no one is connected to this core */
 void pa_core_check_idle(pa_core *c);

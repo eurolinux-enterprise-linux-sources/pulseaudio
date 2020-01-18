@@ -40,11 +40,11 @@ AC_SUBST(PA_MINOR, pa_minor)
 AC_SUBST(PA_MAJORMINOR, pa_major.pa_minor)
 
 AC_SUBST(PA_API_VERSION, 12)
-AC_SUBST(PA_PROTOCOL_VERSION, 32)
+AC_SUBST(PA_PROTOCOL_VERSION, 30)
 
 # The stable ABI for client applications, for the version info x:y:z
 # always will hold y=z
-AC_SUBST(LIBPULSE_VERSION_INFO, [20:1:20])
+AC_SUBST(LIBPULSE_VERSION_INFO, [18:0:18])
 
 # A simplified, synchronous, ABI-stable interface for client
 # applications, for the version info x:y:z always will hold y=z
@@ -80,11 +80,11 @@ AC_PROG_LN_S
 # CC
 
 AC_PROG_CC
+AC_PROG_CC_C99
 AM_PROG_CC_C_O
 # Only required if you want the WebRTC canceller -- no runtime dep on
 # libstdc++ otherwise
 AC_PROG_CXX
-AX_CXX_COMPILE_STDCXX_11([ext],[optional])
 AC_PROG_GCC_TRADITIONAL
 AC_USE_SYSTEM_EXTENSIONS
 
@@ -108,6 +108,9 @@ AM_GNU_GETTEXT([external])
 GETTEXT_PACKAGE=pulseaudio
 AC_SUBST([GETTEXT_PACKAGE])
 AC_DEFINE_UNQUOTED([GETTEXT_PACKAGE],["$GETTEXT_PACKAGE"],[Gettext package])
+
+pulselocaledir='${prefix}/${DATADIRNAME}/locale'
+AX_DEFINE_DIR(PULSE_LOCALEDIR, pulselocaledir, [Gettext locale dir])
 else
 # workaround till an intltool m4 bug is fixed upstream
 # (https://bugs.launchpad.net/intltool/+bug/904647)
@@ -136,9 +139,6 @@ case "$host_os" in
     freebsd*)
         AC_MSG_RESULT([freebsd])
         host_has_caps=1
-    ;;
-    netbsd*)
-        AC_MSG_RESULT([netbsd])
     ;;
     darwin*)
         AC_MSG_RESULT([darwin])
@@ -176,11 +176,6 @@ esac
 
 #### Compiler flags ####
 
-AX_CHECK_COMPILE_FLAG([-std=gnu11],
-   [],
-   [AC_MSG_ERROR([*** Compiler does not support -std=gnu11])],
-   [-pedantic -Werror])
-
 AX_APPEND_COMPILE_FLAGS(
     [-Wall -W -Wextra -pipe -Wno-long-long -Wno-overlength-strings -Wunsafe-loop-optimizations -Wundef -Wformat=2 -Wlogical-op -Wsign-compare -Wformat-security -Wmissing-include-dirs -Wformat-nonliteral -Wold-style-definition -Wpointer-arith -Winit-self -Wdeclaration-after-statement -Wfloat-equal -Wmissing-prototypes -Wstrict-prototypes -Wredundant-decls -Wmissing-declarations -Wmissing-noreturn -Wshadow -Wendif-labels -Wcast-align -Wstrict-aliasing -Wwrite-strings -Wno-unused-parameter -ffast-math -fno-common -fdiagnostics-show-option -fdiagnostics-color=auto],
     [], [-pedantic -Werror])
@@ -217,7 +212,7 @@ AC_SUBST([IMMEDIATE_LDFLAGS])
 # On ELF systems we don't want the libraries to be unloaded since we don't clean them up properly,
 # so we request the nodelete flag to be enabled.
 # On other systems, we don't really know how to do that, but it's welcome if somebody can tell.
-AX_APPEND_LINK_FLAGS([-Wl,-z,nodelete], [NODELETE_LDFLAGS], [-shared])
+AX_APPEND_LINK_FLAGS([-Wl,-z,nodelete], [NODELETE_LDFLAGS])
 AC_SUBST([NODELETE_LDFLAGS])
 
 # Check for the proper way to build libraries that have no undefined symbols
@@ -265,10 +260,6 @@ else
     # HW specific atomic ops stuff
     AC_MSG_CHECKING([architecture for native atomic operations])
     case $host in
-        *-netbsd*)
-            AC_MSG_RESULT([yes])
-            need_libatomic_ops=no
-        ;;
         arm*)
             AC_MSG_RESULT([arm])
             AC_MSG_CHECKING([whether we can use Linux kernel helpers])
@@ -303,6 +294,10 @@ else
                     need_libatomic_ops=no
                 ])
             fi
+        ;;
+        *-netbsdelf5*)
+            AC_MSG_RESULT([yes])
+            need_libatomic_ops=no
         ;;
         *-freebsd*)
             AC_MSG_RESULT([yes])
@@ -452,7 +447,6 @@ AC_CHECK_HEADERS_ONCE([sys/eventfd.h])
 AC_CHECK_HEADERS_ONCE([execinfo.h])
 AC_CHECK_HEADERS_ONCE([langinfo.h])
 AC_CHECK_HEADERS_ONCE([regex.h pcreposix.h])
-AC_CHECK_HEADERS_ONCE([locale.h xlocale.h])
 
 AM_CONDITIONAL(HAVE_SYS_EVENTFD_H, test "x$ac_cv_header_sys_eventfd_h" = "xyes")
 
@@ -467,17 +461,6 @@ AC_TYPE_OFF_T
 
 AC_TYPE_UID_T
 AC_CHECK_DECLS(environ)
-
-AC_CHECK_SIZEOF(void*)
-
-fast_64bit_operations="no"
-# This check covers x32-ABI
-AC_CHECK_DECL([__x86_64__], [fast_64bit_operations="yes"], [], [])
-if test "x$fast_64bit_operations" = "xno"; then
-    AS_IF([test $ac_cv_sizeof_voidp -ge 8], [fast_64bit_operations="yes"])
-fi
-
-AS_IF([test "x$fast_64bit_operations" = "xyes"], AC_DEFINE([HAVE_FAST_64BIT_OPERATIONS], 1, [Have CPU with fast 64-bit operations?]))
 
 # SIGXCPU
 AX_CHECK_DEFINE([signal.h], [SIGXCPU], [HAVE_SIGXCPU=1], [HAVE_SIGXCPU=0])
@@ -505,14 +488,14 @@ AS_IF([test "$pulseaudio_cv__Bool" = "yes"], AC_DEFINE([HAVE_STD_BOOL], 1, [Have
 #### Thread support ####
 
 AX_TLS
-AS_IF([test "$ac_cv_tls" = "__thread"],
+AS_IF([test "$ac_cv_tls" == "__thread"],
     AC_DEFINE([SUPPORT_TLS___THREAD], 1, [Define this if the compiler supports __thread for Thread-Local Storage]))
 
 # Win32 build breaks with win32 pthread installed
 AS_IF([test "x$os_is_win32" != "x1"],
   [AX_PTHREAD])
 
-AS_IF([test "x$ax_pthread_ok" = "xyes"],
+AS_IF([test "x$ax_pthread_ok" == "xyes"],
     AC_DEFINE([_POSIX_PTHREAD_SEMANTICS], 1, [Needed on Solaris]))
 
 
@@ -538,9 +521,13 @@ AC_SEARCH_LIBS([backtrace], [execinfo ubacktrace])
 # Darwin/OS X
 if test "x$os_is_darwin" = "x1" ; then
     AC_MSG_CHECKING([looking for Apple CoreService Framework])
-    AC_CHECK_HEADER([CoreServices/CoreServices.h],
+    # How do I check a framework "library" - AC_CHECK_LIB prob. won't work??, just assign LIBS & hope
+    AC_CHECK_HEADER([/Developer/Headers/FlatCarbon/CoreServices.h],
         [LIBS="$LIBS -framework CoreServices"],
-        [AC_MSG_ERROR([CoreServices.h header file not found])]
+        [AC_CHECK_HEADERS([/System/Library/Frameworks/CoreServices.framework/Headers/CoreServices.h],
+            [LIBS="$LIBS -framework CoreServices"],
+            [AC_MSG_ERROR([CoreServices.h header file not found])]
+        )]
     )
 
     AC_MSG_RESULT([ok])
@@ -582,10 +569,10 @@ AC_CHECK_FUNCS_ONCE([ctime_r usleep])
 AC_CHECK_FUNCS_ONCE([strerror_r])
 
 # BSD
-AC_CHECK_FUNCS_ONCE([lstat paccept])
+AC_CHECK_FUNCS_ONCE([lstat])
 
 # Non-standard
-AC_CHECK_FUNCS_ONCE([setresuid setresgid setreuid setregid seteuid setegid ppoll strsignal sig2str strtod_l pipe2 accept4])
+AC_CHECK_FUNCS_ONCE([setresuid setresgid setreuid setregid seteuid setegid ppoll strsignal sig2str strtof_l pipe2 accept4])
 
 AC_FUNC_ALLOCA
 
@@ -607,23 +594,6 @@ AC_DEFINE(HAVE_DLADDR, [1], [Have dladdr?])
 #### [lib]iconv ####
 
 AM_ICONV
-
-#### Linux memfd_create(2) SHM support ####
-
-AC_ARG_ENABLE([memfd],
-    AS_HELP_STRING([--disable-memfd], [Disable Linux memfd shared memory]))
-
-AS_IF([test "x$enable_memfd" != "xno"],
-    AC_CHECK_DECL(SYS_memfd_create, [HAVE_MEMFD=1], [HAVE_MEMFD=0], [#include <sys/syscall.h>]),
-    [HAVE_MEMFD=0])
-
-AS_IF([test "x$enable_memfd" = "xyes" && test "x$HAVE_MEMFD" = "x0"],
-    [AC_MSG_ERROR([*** Your Linux kernel does not support memfd shared memory.
-                  *** Use linux v3.17 or higher for such a feature.])])
-
-AC_SUBST(HAVE_MEMFD)
-AM_CONDITIONAL([HAVE_MEMFD], [test "x$HAVE_MEMFD" = x1])
-AS_IF([test "x$HAVE_MEMFD" = "x1"], AC_DEFINE([HAVE_MEMFD], 1, [Have memfd shared memory.]))
 
 #### X11 (optional) ####
 
@@ -668,13 +638,17 @@ AC_ARG_ENABLE([tests],
     AS_HELP_STRING([--disable-tests],[Disable unit tests]))
 
 AS_IF([test "x$enable_tests" != "xno"],
-    [PKG_CHECK_MODULES(LIBCHECK, [ check >= 0.9.10 ], HAVE_LIBCHECK=1, HAVE_LIBCHECK=0)],
+    [PKG_CHECK_MODULES(LIBCHECK, [ check ], HAVE_LIBCHECK=1, HAVE_LIBCHECK=0)],
     HAVE_LIBCHECK=0)
 
 AS_IF([test "x$enable_tests" = "xyes" && test "x$HAVE_LIBCHECK" = "x0"],
-    [AC_MSG_ERROR([*** check library not found or too old])])
+    [AC_MSG_ERROR([*** check library not found])])
 
 AM_CONDITIONAL([HAVE_TESTS], [test "x$HAVE_LIBCHECK" = x1])
+
+#### json parsing ####
+
+PKG_CHECK_MODULES(LIBJSON, [ json-c >= 0.11 ])
 
 #### Sound file ####
 
@@ -794,13 +768,6 @@ AM_CONDITIONAL([HAVE_OSS_WRAPPER], [test "x$HAVE_OSS_WRAPPER" = "x1"])
 AS_IF([test "x$HAVE_OSS_OUTPUT" = "x1"], AC_DEFINE([HAVE_OSS_OUTPUT], 1, [Have OSS output?]))
 AS_IF([test "x$HAVE_OSS_WRAPPER" = "x1"], AC_DEFINE([HAVE_OSS_WRAPPER], 1, [Have OSS wrapper (padsp)?]))
 
-# Some platforms like SunOS (Illumos) may ship without SOUND_PCM_* functionality
-if test "x$HAVE_OSS" = "x1"; then
-    AC_CHECK_DECLS([SOUND_PCM_READ_RATE], [], [], [[#include <sys/soundcard.h>]])
-    AC_CHECK_DECLS([SOUND_PCM_READ_CHANNELS], [], [], [[#include <sys/soundcard.h>]])
-    AC_CHECK_DECLS([SOUND_PCM_READ_BITS], [], [], [[#include <sys/soundcard.h>]])
-fi
-
 #### CoreAudio support (optional) ####
 
 AC_ARG_ENABLE([coreaudio-output],
@@ -813,10 +780,7 @@ AS_IF([test "x$enable_coreaudio_output" != "xno"],
 AS_IF([test "x$enable_coreaudio_output" = "xyes" && test "x$HAVE_COREAUDIO" = "x0"],
     [AC_MSG_ERROR([*** CoreAudio output support not found])])
 
-AC_SUBST(HAVE_COREAUDIO)
 AM_CONDITIONAL([HAVE_COREAUDIO], [test "x$HAVE_COREAUDIO" = "x1" && test "x$enable_coreaudio_output" != "xno"])
-
-AS_IF([test "x$HAVE_COREAUDIO" = "x1"], AC_DEFINE([HAVE_COREAUDIO], 1, [Have CoreAudio?]))
 
 #### ALSA support (optional) ####
 
@@ -1175,21 +1139,30 @@ AS_IF([test "x$with_speex" = "xyes" && test "x$HAVE_SPEEX" = "x0"],
 AM_CONDITIONAL([HAVE_SPEEX], [test "x$HAVE_SPEEX" = "x1"])
 AS_IF([test "x$HAVE_SPEEX" = "x1"], AC_DEFINE([HAVE_SPEEX], 1, [Have speex]))
 
-#### soxr (optional) ####
+#### Xen support (optional) ####
 
-AC_ARG_WITH([soxr],
-    AS_HELP_STRING([--without-soxr],[Omit soxr (resampling)]))
+AC_ARG_ENABLE([xen],
+    AS_HELP_STRING([--disable-xen],[Disable optional Xen paravirtualized driver]))
 
-AS_IF([test "x$with_soxr" != "xno"],
-    [PKG_CHECK_MODULES(LIBSOXR, [ soxr >= 0.1.1 ], HAVE_SOXR=1, HAVE_SOXR=0)],
-    HAVE_SOXR=0)
+XEN_CFLAGS=
+XEN_LIBS=
 
-AS_IF([test "x$with_soxr" = "xyes" && test "x$HAVE_SOXR" = "x0"],
-    [AC_MSG_ERROR([*** soxr support not found])])
+AS_IF([test "x$enable_xen" != "xno"],
+    [
+        HAVE_XEN=1
+        AC_CHECK_HEADER(xenctrl.h, [], [HAVE_XEN=0])
+        AC_CHECK_HEADER(xs.h, [], [HAVE_XEN=0])
+        AC_CHECK_LIB(xenctrl, xc_interface_open, [XEN_LIBS="$XEN_LIBS -lxenctrl"], [HAVE_XEN=0])
+        AC_CHECK_LIB(xenstore, xs_domain_open, [XEN_LIBS="$XEN_LIBS -lxenstore"], [HAVE_XEN=0])
+    ],
+    HAVE_XEN=0)
 
-AM_CONDITIONAL([HAVE_SOXR], [test "x$HAVE_SOXR" = "x1"])
-AS_IF([test "x$HAVE_SOXR" = "x1"], AC_DEFINE([HAVE_SOXR], 1, [Have soxr]))
+AS_IF([test "x$enable_xen" = "xyes" && test "x$HAVE_XEN" = "x0"],
+    [AC_MSG_ERROR([*** Xen development headers or libraries not found])])
 
+AC_SUBST(XEN_CFLAGS)
+AC_SUBST(XEN_LIBS)
+AM_CONDITIONAL([HAVE_XEN], [test "x$HAVE_XEN" = x1])
 
 #### gcov support (optional) #####
 
@@ -1365,16 +1338,11 @@ AC_ARG_WITH(mac-version-min,
 
 AC_ARG_WITH(mac-sysroot,
     AS_HELP_STRING([--with-mac-sysroot=<path>], [SDK basedir to use as the logical root directory for headers and libraries.]),
-    mac_sysroot=$withval)
+    mac_sysroot=$withval, mac_sysroot="/Developer/SDKs/MacOSX10.5.sdk")
 
 if test "x$os_is_darwin" = "x1" ; then
-    LDFLAGS="$LDFLAGS -mmacosx-version-min=$mac_version_min"
-    CFLAGS="$CFLAGS -mmacosx-version-min=$mac_version_min"
-
-    if test "x$mac_sysroot" != "x" ; then
-        LDFLAGS="$LDFLAGS -isysroot $mac_sysroot"
-        CFLAGS="$CFLAGS -isysroot $mac_sysroot"
-    fi
+    LDFLAGS="$LDFLAGS -isysroot $mac_sysroot -mmacosx-version-min=$mac_version_min"
+    CFLAGS="$CFLAGS -isysroot $mac_sysroot -mmacosx-version-min=$mac_version_min"
 
     if test "x$enable_mac_universal" = "xyes" ; then
         mac_arches="-arch i386 -arch x86_64"
@@ -1386,11 +1354,8 @@ fi
 AC_ARG_ENABLE([webrtc-aec],
     AS_HELP_STRING([--enable-webrtc-aec], [Enable the optional WebRTC-based echo canceller]))
 
-AS_IF([test "x$enable_webrtc_aec" = "xyes" && test "$HAVE_CXX11" = "0"],
-    [AC_MSG_ERROR([*** webrtc-audio-processing needs C++11 support])])
-
 AS_IF([test "x$enable_webrtc_aec" != "xno"],
-    [PKG_CHECK_MODULES(WEBRTC, [ webrtc-audio-processing >= 0.2 ], [HAVE_WEBRTC=1], [HAVE_WEBRTC=0])],
+    [PKG_CHECK_MODULES(WEBRTC, [ webrtc-audio-processing ], [HAVE_WEBRTC=1], [HAVE_WEBRTC=0])],
     [HAVE_WEBRTC=0])
 
 AS_IF([test "x$enable_webrtc_aec" = "xyes" && test "x$HAVE_WEBRTC" = "x0"],
@@ -1456,15 +1421,6 @@ AC_ARG_WITH(
 
 AC_SUBST(udevrulesdir)
 
-AC_ARG_WITH([bash-completion-dir],
-        AS_HELP_STRING([--with-bash-completion-dir=DIR], [Directory for bash completion files]),
-        [bashcompletiondir=$withval], [bashcompletiondir=$($PKG_CONFIG --variable=completionsdir bash-completion)])
-if test "x$bashcompletionsdir" = "x"; then
-	bashcompletiondir="${datadir}/bash-completion/completions"
-fi
-
-AC_SUBST(bashcompletiondir)
-
 AC_ARG_WITH(
         [zsh-completion-dir],
         AS_HELP_STRING([--with-zsh-completion-dir], [Zsh completions directory (defaults to ${datadir}/zsh/site-functions)]),
@@ -1497,6 +1453,7 @@ po/Makefile.in
 man/pulseaudio.1.xml
 man/esdcompat.1.xml
 man/pax11publish.1.xml
+man/paplay.1.xml
 man/pacat.1.xml
 man/pacmd.1.xml
 man/pactl.1.xml
@@ -1537,7 +1494,6 @@ AC_OUTPUT
 
 # ==========================================================================
 
-AS_IF([test "x$HAVE_MEMFD" = "x1"], ENABLE_MEMFD=yes, ENABLE_MEMFD=no)
 AS_IF([test "x$HAVE_X11" = "x1"], ENABLE_X11=yes, ENABLE_X11=no)
 AS_IF([test "x$HAVE_OSS_OUTPUT" = "x1"], ENABLE_OSS_OUTPUT=yes, ENABLE_OSS_OUTPUT=no)
 AS_IF([test "x$HAVE_OSS_WRAPPER" = "x1"], ENABLE_OSS_WRAPPER=yes, ENABLE_OSS_WRAPPER=no)
@@ -1552,6 +1508,7 @@ AS_IF([test "x$HAVE_AVAHI" = "x1"], ENABLE_AVAHI=yes, ENABLE_AVAHI=no)
 AS_IF([test "x$HAVE_JACK" = "x1"], ENABLE_JACK=yes, ENABLE_JACK=no)
 AS_IF([test "x$HAVE_LIBASYNCNS" = "x1"], ENABLE_LIBASYNCNS=yes, ENABLE_LIBASYNCNS=no)
 AS_IF([test "x$HAVE_LIRC" = "x1"], ENABLE_LIRC=yes, ENABLE_LIRC=no)
+AS_IF([test "x$HAVE_XEN" = "x1"], ENABLE_XEN=yes, ENABLE_XEN=no)
 AS_IF([test "x$HAVE_DBUS" = "x1"], ENABLE_DBUS=yes, ENABLE_DBUS=no)
 AS_IF([test "x$HAVE_UDEV" = "x1"], ENABLE_UDEV=yes, ENABLE_UDEV=no)
 AS_IF([test "x$HAVE_SYSTEMD_DAEMON" = "x1"], ENABLE_SYSTEMD_DAEMON=yes, ENABLE_SYSTEMD_DAEMON=no)
@@ -1570,7 +1527,6 @@ AS_IF([test "x$HAVE_FFTW" = "x1"], ENABLE_FFTW=yes, ENABLE_FFTW=no)
 AS_IF([test "x$HAVE_ORC" = "xyes"], ENABLE_ORC=yes, ENABLE_ORC=no)
 AS_IF([test "x$HAVE_ADRIAN_EC" = "x1"], ENABLE_ADRIAN_EC=yes, ENABLE_ADRIAN_EC=no)
 AS_IF([test "x$HAVE_SPEEX" = "x1"], ENABLE_SPEEX=yes, ENABLE_SPEEX=no)
-AS_IF([test "x$HAVE_SOXR" = "x1"], ENABLE_SOXR=yes, ENABLE_SOXR=no)
 AS_IF([test "x$HAVE_WEBRTC" = "x1"], ENABLE_WEBRTC=yes, ENABLE_WEBRTC=no)
 AS_IF([test "x$HAVE_TDB" = "x1"], ENABLE_TDB=yes, ENABLE_TDB=no)
 AS_IF([test "x$HAVE_GDBM" = "x1"], ENABLE_GDBM=yes, ENABLE_GDBM=no)
@@ -1592,13 +1548,11 @@ echo "
     System State Path:             ${PA_SYSTEM_STATE_PATH}
     System Config Path:            ${PA_SYSTEM_CONFIG_PATH}
     Zsh completions directory:     ${zshcompletiondir}
-    Bash completions directory:    ${bashcompletiondir}
     Compiler:                      ${CC}
     CFLAGS:                        ${CFLAGS}
     CPPFLAGS:                      ${CPPFLAGS}
     LIBS:                          ${LIBS}
 
-    Enable memfd shared memory:    ${ENABLE_MEMFD}
     Enable X11:                    ${ENABLE_X11}
     Enable OSS Output:             ${ENABLE_OSS_OUTPUT}
     Enable OSS Wrapper:            ${ENABLE_OSS_WRAPPER}
@@ -1614,6 +1568,7 @@ echo "
     Enable Jack:                   ${ENABLE_JACK}
     Enable Async DNS:              ${ENABLE_LIBASYNCNS}
     Enable LIRC:                   ${ENABLE_LIRC}
+    Enable Xen PV driver:          ${ENABLE_XEN}
     Enable D-Bus:                  ${ENABLE_DBUS}
       Enable BlueZ 4:              ${ENABLE_BLUEZ_4}
       Enable BlueZ 5:              ${ENABLE_BLUEZ_5}
@@ -1633,7 +1588,6 @@ echo "
     Enable orc:                    ${ENABLE_ORC}
     Enable Adrian echo canceller:  ${ENABLE_ADRIAN_EC}
     Enable speex (resampler, AEC): ${ENABLE_SPEEX}
-    Enable soxr (resampler):       ${ENABLE_SOXR}
     Enable WebRTC echo canceller:  ${ENABLE_WEBRTC}
     Enable gcov coverage:          ${ENABLE_GCOV}
     Enable unit tests:             ${ENABLE_TESTS}

@@ -114,10 +114,7 @@ START_TEST (volume_test) {
             double q, qq;
 
             p = pa_sw_volume_multiply(v, w);
-            if (isfinite(db) && isfinite(db2))
-                qq = db + db2;
-            else
-                qq = -INFINITY;
+            qq = db + db2;
             p2 = pa_sw_volume_from_dB(qq);
             q = l*t;
             p1 = pa_sw_volume_from_linear(q);

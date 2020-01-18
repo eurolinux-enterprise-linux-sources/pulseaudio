@@ -119,7 +119,6 @@ void pa_cpu_get_arm_flags(pa_cpu_arm_flag_t *flags) {
 
             pa_xfree(current);
         }
-        pa_xfree(line);
     }
 
     /* get the CPU part number */

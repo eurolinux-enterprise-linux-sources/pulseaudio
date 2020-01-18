@@ -181,19 +181,6 @@ static int set_buffer_size(snd_pcm_t *pcm_handle, snd_pcm_hw_params_t *hwparams,
     return 0;
 }
 
-static void check_access(snd_pcm_t *pcm_handle, snd_pcm_hw_params_t *hwparams, bool use_mmap) {
-    if ((use_mmap && !snd_pcm_hw_params_test_access(pcm_handle, hwparams, SND_PCM_ACCESS_MMAP_INTERLEAVED)) ||
-        !snd_pcm_hw_params_test_access(pcm_handle, hwparams, SND_PCM_ACCESS_RW_INTERLEAVED))
-        pa_log_error("Weird, PCM claims to support interleaved access, but snd_pcm_hw_params_set_access() failed.");
-
-    if ((use_mmap && !snd_pcm_hw_params_test_access(pcm_handle, hwparams, SND_PCM_ACCESS_MMAP_NONINTERLEAVED)) ||
-        !snd_pcm_hw_params_test_access(pcm_handle, hwparams, SND_PCM_ACCESS_RW_NONINTERLEAVED))
-        pa_log_debug("PCM seems to support non-interleaved access, but PA doesn't.");
-    else if (use_mmap && !snd_pcm_hw_params_test_access(pcm_handle, hwparams, SND_PCM_ACCESS_MMAP_COMPLEX)) {
-        pa_log_debug("PCM seems to support mmapped complex access, but PA doesn't.");
-    }
-}
-
 /* Set the hardware parameters of the given ALSA device. Returns the
  * selected fragment settings in *buffer_size and *period_size. Determine
  * whether mmap and tsched mode can be enabled. */
@@ -240,7 +227,6 @@ int pa_alsa_set_hw_params(
 
             if ((ret = snd_pcm_hw_params_set_access(pcm_handle, hwparams, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
                 pa_log_debug("snd_pcm_hw_params_set_access() failed: %s", pa_alsa_strerror(ret));
-                check_access(pcm_handle, hwparams, true);
                 goto finish;
             }
 
@@ -249,7 +235,6 @@ int pa_alsa_set_hw_params(
 
     } else if ((ret = snd_pcm_hw_params_set_access(pcm_handle, hwparams, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
         pa_log_debug("snd_pcm_hw_params_set_access() failed: %s", pa_alsa_strerror(ret));
-        check_access(pcm_handle, hwparams, false);
         goto finish;
     }
 
@@ -261,25 +246,8 @@ int pa_alsa_set_hw_params(
 
     /* The PCM pointer is only updated with period granularity */
     if (snd_pcm_hw_params_is_batch(hwparams)) {
-        bool is_usb = false;
-        const char *id;
-        snd_pcm_info_t* pcm_info;
-        snd_pcm_info_alloca(&pcm_info);
-
-        if (snd_pcm_info(pcm_handle, pcm_info) == 0 &&
-            (id = snd_pcm_info_get_id(pcm_info))) {
-            /* This horrible hack makes sure we don't disable tsched on USB
-             * devices, which have a low enough transfer size for timer-based
-             * scheduling to work. This can go away when the ALSA API supprots
-             * querying the block transfer size. */
-            if (pa_streq(id, "USB Audio"))
-                is_usb = true;
-        }
-
-        if (!is_usb) {
-            pa_log_info("Disabling tsched mode since BATCH flag is set");
-            _use_tsched = false;
-        }
+        pa_log_info("Disabling tsched mode since BATCH flag is set");
+        _use_tsched = false;
     }
 
 #if (SND_LIB_VERSION >= ((1<<16)|(0<<8)|24)) /* API additions in 1.0.24 */
@@ -474,32 +442,32 @@ int pa_alsa_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_min, bool peri
     snd_pcm_sw_params_alloca(&swparams);
 
     if ((err = snd_pcm_sw_params_current(pcm, swparams)) < 0) {
-        pa_log_warn("Unable to determine current swparams: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to determine current swparams: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
     if ((err = snd_pcm_sw_params_set_period_event(pcm, swparams, period_event)) < 0) {
-        pa_log_warn("Unable to disable period event: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to disable period event: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
     if ((err = snd_pcm_sw_params_set_tstamp_mode(pcm, swparams, SND_PCM_TSTAMP_ENABLE)) < 0) {
-        pa_log_warn("Unable to enable time stamping: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to enable time stamping: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
     if ((err = snd_pcm_sw_params_get_boundary(swparams, &boundary)) < 0) {
-        pa_log_warn("Unable to get boundary: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to get boundary: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
     if ((err = snd_pcm_sw_params_set_stop_threshold(pcm, swparams, boundary)) < 0) {
-        pa_log_warn("Unable to set stop threshold: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to set stop threshold: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
     if ((err = snd_pcm_sw_params_set_start_threshold(pcm, swparams, (snd_pcm_uframes_t) -1)) < 0) {
-        pa_log_warn("Unable to set start threshold: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to set start threshold: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
@@ -509,7 +477,7 @@ int pa_alsa_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_min, bool peri
     }
 
     if ((err = snd_pcm_sw_params(pcm, swparams)) < 0) {
-        pa_log_warn("Unable to set sw params: %s", pa_alsa_strerror(err));
+        pa_log_warn("Unable to set sw params: %s\n", pa_alsa_strerror(err));
         return err;
     }
 
@@ -1546,7 +1514,7 @@ static int mixer_class_event(snd_mixer_class_t *class, unsigned int mask,
         return 0;
     }
     else
-        pa_log_info("Got an unknown mixer class event for %s: mask 0x%x", name, mask);
+        pa_log_info("Got an unknown mixer class event for %s: mask 0x%x\n", name, mask);
 
     return 0;
 }

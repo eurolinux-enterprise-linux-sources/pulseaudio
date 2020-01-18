@@ -97,20 +97,13 @@ static void asyncmsgq_write_outq_cb(pa_mainloop_api *api, pa_io_event *e, int fd
     pa_asyncmsgq_write_before_poll(q->outq);
 }
 
-int pa_thread_mq_init_thread_mainloop(pa_thread_mq *q, pa_mainloop_api *main_mainloop, pa_mainloop_api *thread_mainloop) {
+void pa_thread_mq_init_thread_mainloop(pa_thread_mq *q, pa_mainloop_api *main_mainloop, pa_mainloop_api *thread_mainloop) {
     pa_assert(q);
     pa_assert(main_mainloop);
     pa_assert(thread_mainloop);
 
-    pa_zero(*q);
-
-    q->inq = pa_asyncmsgq_new(0);
-    if (!q->inq)
-        goto fail;
-
-    q->outq = pa_asyncmsgq_new(0);
-    if (!q->outq)
-        goto fail;
+    pa_assert_se(q->inq = pa_asyncmsgq_new(0));
+    pa_assert_se(q->outq = pa_asyncmsgq_new(0));
 
     q->main_mainloop = main_mainloop;
     q->thread_mainloop = thread_mainloop;
@@ -124,31 +117,17 @@ int pa_thread_mq_init_thread_mainloop(pa_thread_mq *q, pa_mainloop_api *main_mai
     pa_asyncmsgq_write_before_poll(q->inq);
     pa_assert_se(q->read_thread_event = thread_mainloop->io_new(thread_mainloop, pa_asyncmsgq_read_fd(q->inq), PA_IO_EVENT_INPUT, asyncmsgq_read_cb, q));
     pa_assert_se(q->write_main_event = main_mainloop->io_new(main_mainloop, pa_asyncmsgq_write_fd(q->inq), PA_IO_EVENT_INPUT, asyncmsgq_write_inq_cb, q));
-
-    return 0;
-
-fail:
-    pa_thread_mq_done(q);
-
-    return -1;
 }
 
-int pa_thread_mq_init(pa_thread_mq *q, pa_mainloop_api *mainloop, pa_rtpoll *rtpoll) {
+void pa_thread_mq_init(pa_thread_mq *q, pa_mainloop_api *mainloop, pa_rtpoll *rtpoll) {
     pa_assert(q);
     pa_assert(mainloop);
-
-    pa_zero(*q);
 
     q->main_mainloop = mainloop;
     q->thread_mainloop = NULL;
 
-    q->inq = pa_asyncmsgq_new(0);
-    if (!q->inq)
-        goto fail;
-
-    q->outq = pa_asyncmsgq_new(0);
-    if (!q->outq)
-        goto fail;
+    pa_assert_se(q->inq = pa_asyncmsgq_new(0));
+    pa_assert_se(q->outq = pa_asyncmsgq_new(0));
 
     pa_assert_se(pa_asyncmsgq_read_before_poll(q->outq) == 0);
     pa_assert_se(q->read_main_event = mainloop->io_new(mainloop, pa_asyncmsgq_read_fd(q->outq), PA_IO_EVENT_INPUT, asyncmsgq_read_cb, q));
@@ -158,13 +137,6 @@ int pa_thread_mq_init(pa_thread_mq *q, pa_mainloop_api *mainloop, pa_rtpoll *rtp
 
     pa_rtpoll_item_new_asyncmsgq_read(rtpoll, PA_RTPOLL_EARLY, q->inq);
     pa_rtpoll_item_new_asyncmsgq_write(rtpoll, PA_RTPOLL_LATE, q->outq);
-
-    return 0;
-
-fail:
-    pa_thread_mq_done(q);
-
-    return -1;
 }
 
 void pa_thread_mq_done(pa_thread_mq *q) {
@@ -176,35 +148,21 @@ void pa_thread_mq_done(pa_thread_mq *q) {
      * msgs, other stuff). Hence do so if we aren't currently
      * dispatching anyway. */
 
-    if (q->outq && !pa_asyncmsgq_dispatching(q->outq)) {
-        /* Flushing the asyncmsgq can cause arbitrarily callbacks to run,
-           potentially causing recursion into pa_thread_mq_done again. */
-        pa_asyncmsgq *z = q->outq;
-        pa_asyncmsgq_ref(z);
-        pa_asyncmsgq_flush(z, true);
-        pa_asyncmsgq_unref(z);
-    }
+    if (!pa_asyncmsgq_dispatching(q->outq))
+        pa_asyncmsgq_flush(q->outq, true);
 
-    if (q->main_mainloop) {
-        if (q->read_main_event)
-            q->main_mainloop->io_free(q->read_main_event);
-        if (q->write_main_event)
-            q->main_mainloop->io_free(q->write_main_event);
-        q->read_main_event = q->write_main_event = NULL;
-    }
+    q->main_mainloop->io_free(q->read_main_event);
+    q->main_mainloop->io_free(q->write_main_event);
+    q->read_main_event = q->write_main_event = NULL;
 
     if (q->thread_mainloop) {
-        if (q->read_thread_event)
-            q->thread_mainloop->io_free(q->read_thread_event);
-        if (q->write_thread_event)
-            q->thread_mainloop->io_free(q->write_thread_event);
+        q->thread_mainloop->io_free(q->read_thread_event);
+        q->thread_mainloop->io_free(q->write_thread_event);
         q->read_thread_event = q->write_thread_event = NULL;
     }
 
-    if (q->inq)
-        pa_asyncmsgq_unref(q->inq);
-    if (q->outq)
-        pa_asyncmsgq_unref(q->outq);
+    pa_asyncmsgq_unref(q->inq);
+    pa_asyncmsgq_unref(q->outq);
     q->inq = q->outq = NULL;
 
     q->main_mainloop = NULL;

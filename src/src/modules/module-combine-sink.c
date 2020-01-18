@@ -90,27 +90,9 @@ struct output {
     pa_sink_input *sink_input;
     bool ignore_state_change;
 
-    /* This message queue is only for POST messages, i.e. the messages that
-     * carry audio data from the sink thread to the output thread. The POST
-     * messages need to be handled in a separate queue, because the queue is
-     * processed not only in the output thread mainloop, but also inside the
-     * sink input pop() callback. Processing other messages (such as
-     * SET_REQUESTED_LATENCY) is not safe inside the pop() callback; at least
-     * one reason why it's not safe is that messages that generate rewind
-     * requests (such as SET_REQUESTED_LATENCY) cause crashes when processed
-     * in the pop() callback. */
-    pa_asyncmsgq *audio_inq;
-
-    /* This message queue is for all other messages than POST from the sink
-     * thread to the output thread (currently "all other messages" means just
-     * the SET_REQUESTED_LATENCY message). */
-    pa_asyncmsgq *control_inq;
-
-    /* Message queue from the output thread to the sink thread. */
-    pa_asyncmsgq *outq;
-
-    pa_rtpoll_item *audio_inq_rtpoll_item_read, *audio_inq_rtpoll_item_write;
-    pa_rtpoll_item *control_inq_rtpoll_item_read, *control_inq_rtpoll_item_write;
+    pa_asyncmsgq *inq,    /* Message queue from the sink thread to this sink input */
+                 *outq;   /* Message queue from this sink input to the sink thread */
+    pa_rtpoll_item *inq_rtpoll_item_read, *inq_rtpoll_item_write;
     pa_rtpoll_item *outq_rtpoll_item_read, *outq_rtpoll_item_write;
 
     pa_memblockq *memblockq;
@@ -370,7 +352,7 @@ finish:
     pa_log_debug("Thread shutting down");
 }
 
-/* Called from combine sink I/O thread context */
+/* Called from I/O thread context */
 static void render_memblock(struct userdata *u, struct output *o, size_t length) {
     pa_assert(u);
     pa_assert(o);
@@ -385,7 +367,7 @@ static void render_memblock(struct userdata *u, struct output *o, size_t length)
 
     /* Maybe there's some data in the requesting output's queue
      * now? */
-    while (pa_asyncmsgq_process_one(o->audio_inq) > 0)
+    while (pa_asyncmsgq_process_one(o->inq) > 0)
         ;
 
     /* Ok, now let's prepare some data if we really have to */
@@ -403,7 +385,7 @@ static void render_memblock(struct userdata *u, struct output *o, size_t length)
             if (j == o)
                 continue;
 
-            pa_asyncmsgq_post(j->audio_inq, PA_MSGOBJECT(j->sink_input), SINK_INPUT_MESSAGE_POST, NULL, 0, &chunk, NULL);
+            pa_asyncmsgq_post(j->inq, PA_MSGOBJECT(j->sink_input), SINK_INPUT_MESSAGE_POST, NULL, 0, &chunk, NULL);
         }
 
         /* And place it directly into the requesting output's queue */
@@ -421,7 +403,7 @@ static void request_memblock(struct output *o, size_t length) {
     /* If another thread already prepared some data we received
      * the data over the asyncmsgq, hence let's first process
      * it. */
-    while (pa_asyncmsgq_process_one(o->audio_inq) > 0)
+    while (pa_asyncmsgq_process_one(o->inq) > 0)
         ;
 
     /* Check whether we're now readable */
@@ -532,19 +514,12 @@ static void sink_input_attach_cb(pa_sink_input *i) {
     pa_assert_se(o = i->userdata);
 
     /* Set up the queue from the sink thread to us */
-    pa_assert(!o->audio_inq_rtpoll_item_read);
-    pa_assert(!o->control_inq_rtpoll_item_read);
-    pa_assert(!o->outq_rtpoll_item_write);
+    pa_assert(!o->inq_rtpoll_item_read && !o->outq_rtpoll_item_write);
 
-    o->audio_inq_rtpoll_item_read = pa_rtpoll_item_new_asyncmsgq_read(
+    o->inq_rtpoll_item_read = pa_rtpoll_item_new_asyncmsgq_read(
             i->sink->thread_info.rtpoll,
             PA_RTPOLL_LATE,  /* This one is not that important, since we check for data in _peek() anyway. */
-            o->audio_inq);
-
-    o->control_inq_rtpoll_item_read = pa_rtpoll_item_new_asyncmsgq_read(
-            i->sink->thread_info.rtpoll,
-            PA_RTPOLL_NORMAL,
-            o->control_inq);
+            o->inq);
 
     o->outq_rtpoll_item_write = pa_rtpoll_item_new_asyncmsgq_write(
             i->sink->thread_info.rtpoll,
@@ -584,14 +559,9 @@ static void sink_input_detach_cb(pa_sink_input *i) {
      * pass any further data to this output */
     pa_asyncmsgq_send(o->userdata->sink->asyncmsgq, PA_MSGOBJECT(o->userdata->sink), SINK_MESSAGE_REMOVE_OUTPUT, o, 0, NULL);
 
-    if (o->audio_inq_rtpoll_item_read) {
-        pa_rtpoll_item_free(o->audio_inq_rtpoll_item_read);
-        o->audio_inq_rtpoll_item_read = NULL;
-    }
-
-    if (o->control_inq_rtpoll_item_read) {
-        pa_rtpoll_item_free(o->control_inq_rtpoll_item_read);
-        o->control_inq_rtpoll_item_read = NULL;
+    if (o->inq_rtpoll_item_read) {
+        pa_rtpoll_item_free(o->inq_rtpoll_item_read);
+        o->inq_rtpoll_item_read = NULL;
     }
 
     if (o->outq_rtpoll_item_write) {
@@ -786,22 +756,16 @@ static void output_add_within_thread(struct output *o) {
 
     PA_LLIST_PREPEND(struct output, o->userdata->thread_info.active_outputs, o);
 
-    pa_assert(!o->outq_rtpoll_item_read);
-    pa_assert(!o->audio_inq_rtpoll_item_write);
-    pa_assert(!o->control_inq_rtpoll_item_write);
+    pa_assert(!o->outq_rtpoll_item_read && !o->inq_rtpoll_item_write);
 
     o->outq_rtpoll_item_read = pa_rtpoll_item_new_asyncmsgq_read(
             o->userdata->rtpoll,
             PA_RTPOLL_EARLY-1,  /* This item is very important */
             o->outq);
-    o->audio_inq_rtpoll_item_write = pa_rtpoll_item_new_asyncmsgq_write(
+    o->inq_rtpoll_item_write = pa_rtpoll_item_new_asyncmsgq_write(
             o->userdata->rtpoll,
             PA_RTPOLL_EARLY,
-            o->audio_inq);
-    o->control_inq_rtpoll_item_write = pa_rtpoll_item_new_asyncmsgq_write(
-            o->userdata->rtpoll,
-            PA_RTPOLL_NORMAL,
-            o->control_inq);
+            o->inq);
 }
 
 /* Called from thread context of the io thread */
@@ -816,14 +780,9 @@ static void output_remove_within_thread(struct output *o) {
         o->outq_rtpoll_item_read = NULL;
     }
 
-    if (o->audio_inq_rtpoll_item_write) {
-        pa_rtpoll_item_free(o->audio_inq_rtpoll_item_write);
-        o->audio_inq_rtpoll_item_write = NULL;
-    }
-
-    if (o->control_inq_rtpoll_item_write) {
-        pa_rtpoll_item_free(o->control_inq_rtpoll_item_write);
-        o->control_inq_rtpoll_item_write = NULL;
+    if (o->inq_rtpoll_item_write) {
+        pa_rtpoll_item_free(o->inq_rtpoll_item_write);
+        o->inq_rtpoll_item_write = NULL;
     }
 }
 
@@ -844,8 +803,7 @@ static void sink_update_requested_latency(pa_sink *s) {
 
     /* Just hand this one over to all sink_inputs */
     PA_LLIST_FOREACH(o, u->thread_info.active_outputs) {
-        pa_asyncmsgq_post(o->control_inq, PA_MSGOBJECT(o->sink_input), SINK_INPUT_MESSAGE_SET_REQUESTED_LATENCY, NULL,
-                          u->block_usec, NULL, NULL);
+        pa_asyncmsgq_post(o->inq, PA_MSGOBJECT(o->sink_input), SINK_INPUT_MESSAGE_SET_REQUESTED_LATENCY, NULL, u->block_usec, NULL, NULL);
     }
 }
 
@@ -1019,25 +977,8 @@ static struct output *output_new(struct userdata *u, pa_sink *sink) {
 
     o = pa_xnew0(struct output, 1);
     o->userdata = u;
-
-    o->audio_inq = pa_asyncmsgq_new(0);
-    if (!o->audio_inq) {
-        pa_log("pa_asyncmsgq_new() failed.");
-        goto fail;
-    }
-
-    o->control_inq = pa_asyncmsgq_new(0);
-    if (!o->control_inq) {
-        pa_log("pa_asyncmsgq_new() failed.");
-        goto fail;
-    }
-
+    o->inq = pa_asyncmsgq_new(0);
     o->outq = pa_asyncmsgq_new(0);
-    if (!o->outq) {
-        pa_log("pa_asyncmsgq_new() failed.");
-        goto fail;
-    }
-
     o->sink = sink;
     o->memblockq = pa_memblockq_new(
             "module-combine-sink output memblockq",
@@ -1054,11 +995,6 @@ static struct output *output_new(struct userdata *u, pa_sink *sink) {
     update_description(u);
 
     return o;
-
-fail:
-    output_free(o);
-
-    return NULL;
 }
 
 /* Called from main context */
@@ -1068,26 +1004,18 @@ static void output_free(struct output *o) {
     output_disable(o);
     update_description(o->userdata);
 
-    if (o->audio_inq_rtpoll_item_read)
-        pa_rtpoll_item_free(o->audio_inq_rtpoll_item_read);
-    if (o->audio_inq_rtpoll_item_write)
-        pa_rtpoll_item_free(o->audio_inq_rtpoll_item_write);
-
-    if (o->control_inq_rtpoll_item_read)
-        pa_rtpoll_item_free(o->control_inq_rtpoll_item_read);
-    if (o->control_inq_rtpoll_item_write)
-        pa_rtpoll_item_free(o->control_inq_rtpoll_item_write);
+    if (o->inq_rtpoll_item_read)
+        pa_rtpoll_item_free(o->inq_rtpoll_item_read);
+    if (o->inq_rtpoll_item_write)
+        pa_rtpoll_item_free(o->inq_rtpoll_item_write);
 
     if (o->outq_rtpoll_item_read)
         pa_rtpoll_item_free(o->outq_rtpoll_item_read);
     if (o->outq_rtpoll_item_write)
         pa_rtpoll_item_free(o->outq_rtpoll_item_write);
 
-    if (o->audio_inq)
-        pa_asyncmsgq_unref(o->audio_inq);
-
-    if (o->control_inq)
-        pa_asyncmsgq_unref(o->control_inq);
+    if (o->inq)
+        pa_asyncmsgq_unref(o->inq);
 
     if (o->outq)
         pa_asyncmsgq_unref(o->outq);
@@ -1140,8 +1068,7 @@ static void output_disable(struct output *o) {
 
     /* Finally, drop all queued data */
     pa_memblockq_flush_write(o->memblockq, true);
-    pa_asyncmsgq_flush(o->audio_inq, false);
-    pa_asyncmsgq_flush(o->control_inq, false);
+    pa_asyncmsgq_flush(o->inq, false);
     pa_asyncmsgq_flush(o->outq, false);
 }
 
@@ -1301,12 +1228,7 @@ int pa__init(pa_module*m) {
     u->core = m->core;
     u->module = m;
     u->rtpoll = pa_rtpoll_new();
-
-    if (pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll) < 0) {
-        pa_log("pa_thread_mq_init() failed.");
-        goto fail;
-    }
-
+    pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
     u->resample_method = resample_method;
     u->outputs = pa_idxset_new(NULL, NULL);
     u->thread_info.smoother = pa_smoother_new(

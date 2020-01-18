@@ -141,7 +141,6 @@ void pa_client_conf_load(pa_client_conf *c, bool load_from_x11, bool load_from_e
         { "cookie-file",            pa_config_parse_string,   &c->cookie_file_from_client_conf, NULL },
         { "disable-shm",            pa_config_parse_bool,     &c->disable_shm, NULL },
         { "enable-shm",             pa_config_parse_not_bool, &c->disable_shm, NULL },
-        { "enable-memfd",           pa_config_parse_not_bool, &c->disable_memfd, NULL },
         { "shm-size-bytes",         pa_config_parse_size,     &c->shm_size, NULL },
         { "auto-connect-localhost", pa_config_parse_bool,     &c->auto_connect_localhost, NULL },
         { "auto-connect-display",   pa_config_parse_bool,     &c->auto_connect_display, NULL },
@@ -150,7 +149,7 @@ void pa_client_conf_load(pa_client_conf *c, bool load_from_x11, bool load_from_e
 
     f = pa_open_config_file(DEFAULT_CLIENT_CONFIG_FILE, DEFAULT_CLIENT_CONFIG_FILE_USER, ENV_CLIENT_CONFIG_FILE, &fn);
     if (f) {
-        pa_config_parse(fn, f, table, NULL, true, NULL);
+        pa_config_parse(fn, f, table, NULL, NULL);
         pa_xfree(fn);
         fclose(f);
     }
@@ -213,7 +212,7 @@ int pa_client_conf_load_cookie(pa_client_conf *c, uint8_t *cookie, size_t cookie
     if (r >= 0)
         return 0;
 
-    if (pa_append_to_home_dir(PA_NATIVE_COOKIE_FILE_FALLBACK, &fallback_path) >= 0) {
+    if (pa_append_to_home_dir(PA_NATIVE_COOKIE_FILE_FALLBACK, &fallback_path) > 0) {
         r = pa_authkey_load(fallback_path, false, cookie, cookie_length);
         pa_xfree(fallback_path);
         if (r >= 0)

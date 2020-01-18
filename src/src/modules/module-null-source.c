@@ -200,11 +200,7 @@ int pa__init(pa_module*m) {
     u->core = m->core;
     u->module = m;
     u->rtpoll = pa_rtpoll_new();
-
-    if (pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll) < 0) {
-        pa_log("pa_thread_mq_init() failed.");
-        goto fail;
-    }
+    pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
     pa_source_new_data_init(&data);
     data.driver = __FILE__;

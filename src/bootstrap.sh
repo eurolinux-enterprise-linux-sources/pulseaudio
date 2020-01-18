@@ -38,7 +38,7 @@ fi
 # which will make PKG_PROG_PKG_CONFIG be undefined and the generated
 # configure file faulty.
 if ! pkg-config --version &>/dev/null; then
-    echo "pkg-config is required to bootstrap this program"
+    echo "pkg-config is required to bootstrap this program" &>/dev/null
     DIE=1
 fi
 
@@ -50,6 +50,6 @@ autopoint --force
 AUTOPOINT='intltoolize --automake --copy' autoreconf --force --install --verbose
 
 if test "x$NOCONFIGURE" = "x"; then
-    CFLAGS="$CFLAGS -g -O0" ./configure --sysconfdir=/etc --localstatedir=/var --enable-force-preopen "$@" && \
-        make clean
+    CFLAGS="$CFLAGS -g -O0" ./configure --sysconfdir=/etc --localstatedir=/var --enable-force-preopen "$@"
+    make clean
 fi

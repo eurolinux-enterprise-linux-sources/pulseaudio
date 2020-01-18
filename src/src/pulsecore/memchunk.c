@@ -32,7 +32,6 @@
 #include "memchunk.h"
 
 pa_memchunk* pa_memchunk_make_writable(pa_memchunk *c, size_t min) {
-    pa_mempool *pool;
     pa_memblock *n;
     size_t l;
     void *tdata, *sdata;
@@ -47,9 +46,7 @@ pa_memchunk* pa_memchunk_make_writable(pa_memchunk *c, size_t min) {
 
     l = PA_MAX(c->length, min);
 
-    pool = pa_memblock_get_pool(c->memblock);
-    n = pa_memblock_new(pool, l);
-    pa_mempool_unref(pool), pool = NULL;
+    n = pa_memblock_new(pa_memblock_get_pool(c->memblock), l);
 
     sdata = pa_memblock_acquire(c->memblock);
     tdata = pa_memblock_acquire(n);

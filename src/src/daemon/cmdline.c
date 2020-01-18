@@ -63,7 +63,6 @@ enum {
     ARG_CHECK,
     ARG_NO_CPU_LIMIT,
     ARG_DISABLE_SHM,
-    ARG_ENABLE_MEMFD,
     ARG_DUMP_RESAMPLE_METHODS,
     ARG_SYSTEM,
     ARG_CLEANUP_SHM,
@@ -101,7 +100,6 @@ static const struct option long_options[] = {
     {"system",                      2, 0, ARG_SYSTEM},
     {"no-cpu-limit",                2, 0, ARG_NO_CPU_LIMIT},
     {"disable-shm",                 2, 0, ARG_DISABLE_SHM},
-    {"enable-memfd",                2, 0, ARG_ENABLE_MEMFD},
     {"dump-resample-methods",       2, 0, ARG_DUMP_RESAMPLE_METHODS},
     {"cleanup-shm",                 2, 0, ARG_CLEANUP_SHM},
     {NULL, 0, 0, 0}
@@ -154,8 +152,7 @@ void pa_cmdline_help(const char *argv0) {
            "      --use-pid-file[=BOOL]             Create a PID file\n"
            "      --no-cpu-limit[=BOOL]             Do not install CPU load limiter on\n"
            "                                        platforms that support it.\n"
-           "      --disable-shm[=BOOL]              Disable shared memory support.\n"
-           "      --enable-memfd[=BOOL]             Enable memfd shared memory support.\n\n"
+           "      --disable-shm[=BOOL]              Disable shared memory support.\n\n"
 
            "STARTUP SCRIPT:\n"
            "  -L, --load=\"MODULE ARGUMENTS\"         Load the specified plugin module with\n"
@@ -315,7 +312,7 @@ int pa_cmdline_parse(pa_daemon_conf *conf, int argc, char *const argv [], int *d
             case 'p':
             case ARG_DL_SEARCH_PATH:
                 pa_xfree(conf->dl_search_path);
-                conf->dl_search_path = pa_xstrdup(optarg);
+                conf->dl_search_path = *optarg ? pa_xstrdup(optarg) : NULL;
                 break;
 
             case 'n':
@@ -392,21 +389,13 @@ int pa_cmdline_parse(pa_daemon_conf *conf, int argc, char *const argv [], int *d
                 conf->disable_shm = !!b;
                 break;
 
-            case ARG_ENABLE_MEMFD:
-                if ((b = optarg ? pa_parse_boolean(optarg) : 1) < 0) {
-                    pa_log(_("--enable-memfd expects boolean argument"));
-                    goto fail;
-                }
-                conf->disable_memfd = !b;
-                break;
-
             default:
                 goto fail;
         }
     }
 
     pa_xfree(conf->script_commands);
-    conf->script_commands = pa_strbuf_to_string_free(buf);
+    conf->script_commands = pa_strbuf_tostring_free(buf);
 
     *d = optind;
 

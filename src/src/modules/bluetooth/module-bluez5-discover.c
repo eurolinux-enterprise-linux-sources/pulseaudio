@@ -137,8 +137,7 @@ int pa__init(pa_module *m) {
     return 0;
 
 fail:
-    if (ma)
-        pa_modargs_free(ma);
+    pa_modargs_free(ma);
     pa__done(m);
     return -1;
 }

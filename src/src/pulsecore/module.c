@@ -100,13 +100,6 @@ bool pa_module_exists(const char *name) {
     return false;
 }
 
-void pa_module_hook_connect(pa_module *m, pa_hook *hook, pa_hook_priority_t prio, pa_hook_cb_t cb, void *data) {
-    pa_assert(m);
-    pa_assert(hook);
-    pa_assert(m->hooks);
-    pa_dynarray_append(m->hooks, pa_hook_connect(hook, prio, cb, data));
-}
-
 pa_module* pa_module_load(pa_core *c, const char *name, const char *argument) {
     pa_module *m = NULL;
     bool (*load_once)(void);
@@ -124,7 +117,6 @@ pa_module* pa_module_load(pa_core *c, const char *name, const char *argument) {
     m->argument = pa_xstrdup(argument);
     m->load_once = false;
     m->proplist = pa_proplist_new();
-    m->hooks = pa_dynarray_new((pa_free_cb_t) pa_hook_slot_free);
     m->index = PA_IDXSET_INVALID;
 
     if (!(m->dl = lt_dlopenext(name))) {
@@ -200,8 +192,6 @@ pa_module* pa_module_load(pa_core *c, const char *name, const char *argument) {
         pa_modinfo_free(mi);
     }
 
-    pa_hook_fire(&m->core->hooks[PA_CORE_HOOK_MODULE_NEW], m);
-
     return m;
 
 fail:
@@ -209,9 +199,6 @@ fail:
     if (m) {
         if (m->index != PA_IDXSET_INVALID)
             pa_idxset_remove_by_index(c->modules, m->index);
-
-        if (m->hooks)
-            pa_dynarray_free(m->hooks);
 
         if (m->proplist)
             pa_proplist_free(m->proplist);
@@ -228,23 +215,11 @@ fail:
     return NULL;
 }
 
-static void postponed_dlclose(pa_mainloop_api *api, void *userdata) {
-    lt_dlhandle dl = userdata;
-
-    lt_dlclose(dl);
-}
-
 static void pa_module_free(pa_module *m) {
     pa_assert(m);
     pa_assert(m->core);
 
     pa_log_info("Unloading \"%s\" (index: #%u).", m->name, m->index);
-    pa_hook_fire(&m->core->hooks[PA_CORE_HOOK_MODULE_UNLINK], m);
-
-    if (m->hooks) {
-       pa_dynarray_free(m->hooks);
-       m->hooks = NULL;
-    }
 
     if (m->done)
         m->done(m);
@@ -252,17 +227,7 @@ static void pa_module_free(pa_module *m) {
     if (m->proplist)
         pa_proplist_free(m->proplist);
 
-    /* If a module unloads itself with pa_module_unload(), we can't call
-     * lt_dlclose() here, because otherwise pa_module_unload() may return to a
-     * code location that has been removed from memory. Therefore, let's
-     * postpone the lt_dlclose() call a bit.
-     *
-     * Apparently lt_dlclose() doesn't always remove the module from memory,
-     * but it can happen, as can be seen here:
-     * https://bugs.freedesktop.org/show_bug.cgi?id=96831 */
-    pa_mainloop_api_once(m->core->mainloop, postponed_dlclose, m->dl);
-
-    pa_hashmap_remove(m->core->modules_pending_unload, m);
+    lt_dlclose(m->dl);
 
     pa_log_info("Unloaded \"%s\" (index: #%u).", m->name, m->index);
 
@@ -273,13 +238,16 @@ static void pa_module_free(pa_module *m) {
     pa_xfree(m);
 }
 
-void pa_module_unload(pa_module *m, bool force) {
+void pa_module_unload(pa_core *c, pa_module *m, bool force) {
+    pa_assert(c);
     pa_assert(m);
 
     if (m->core->disallow_module_loading && !force)
         return;
 
-    if (!(m = pa_idxset_remove_by_data(m->core->modules, m, NULL)))
+    pa_hashmap_remove(c->modules_pending_unload, m);
+
+    if (!(m = pa_idxset_remove_by_data(c->modules, m, NULL)))
         return;
 
     pa_module_free(m);
@@ -326,17 +294,12 @@ void pa_module_unload_all(pa_core *c) {
     pa_xfree(indices);
 
     /* Just in case module unloading caused more modules to load */
-    PA_IDXSET_FOREACH(m, c->modules, state)
-        pa_log_warn("After module unload, module '%s' was still loaded!", m->name);
-    c->disallow_module_loading = 1;
     pa_idxset_remove_all(c->modules, (pa_free_cb_t) pa_module_free);
-    pa_assert(pa_idxset_isempty(c->modules));
 
     if (c->module_defer_unload_event) {
         c->mainloop->defer_free(c->module_defer_unload_event);
         c->module_defer_unload_event = NULL;
     }
-    pa_assert(pa_hashmap_isempty(c->modules_pending_unload));
 }
 
 static void defer_cb(pa_mainloop_api*api, pa_defer_event *e, void *userdata) {
@@ -347,7 +310,7 @@ static void defer_cb(pa_mainloop_api*api, pa_defer_event *e, void *userdata) {
     api->defer_enable(e, 0);
 
     while ((m = pa_hashmap_first(c->modules_pending_unload)))
-        pa_module_unload(m, true);
+        pa_module_unload(c, m, true);
 }
 
 void pa_module_unload_request(pa_module *m, bool force) {
@@ -391,5 +354,4 @@ void pa_module_update_proplist(pa_module *m, pa_update_mode_t mode, pa_proplist 
         pa_proplist_update(m->proplist, mode, p);
 
     pa_subscription_post(m->core, PA_SUBSCRIPTION_EVENT_MODULE|PA_SUBSCRIPTION_EVENT_CHANGE, m->index);
-    pa_hook_fire(&m->core->hooks[PA_CORE_HOOK_MODULE_PROPLIST_CHANGED], m);
 }

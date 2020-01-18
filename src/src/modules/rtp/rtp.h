@@ -34,8 +34,6 @@ typedef struct pa_rtp_context {
     uint8_t payload;
     size_t frame_size;
 
-    uint8_t *recv_buf;
-    size_t recv_buf_size;
     pa_memchunk memchunk;
 } pa_rtp_context;
 

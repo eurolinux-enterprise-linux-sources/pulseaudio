@@ -59,10 +59,9 @@ struct pa_dbusiface_card {
     pa_proplist *proplist;
 
     pa_hook_slot *card_profile_added_slot;
-    pa_hook_slot *card_profile_changed_slot;
-    pa_hook_slot *card_profile_available_slot;
 
     pa_dbus_protocol *dbus_protocol;
+    pa_subscription *subscription;
 };
 
 enum property_handler_index {
@@ -108,22 +107,18 @@ static pa_dbus_method_handler method_handlers[METHOD_HANDLER_MAX] = {
 enum signal_index {
     SIGNAL_ACTIVE_PROFILE_UPDATED,
     SIGNAL_NEW_PROFILE,
-    SIGNAL_PROFILE_AVAILABLE_CHANGED,
     SIGNAL_PROPERTY_LIST_UPDATED,
     SIGNAL_MAX
 };
 
-static pa_dbus_arg_info active_profile_updated_args[]    = { { "profile",       "o",      NULL } };
-static pa_dbus_arg_info new_profile_args[]               = { { "profile",       "o",      NULL } };
-static pa_dbus_arg_info profile_available_changed_args[] = { { "profile",       "o",      NULL },
-                                                             { "available",     "b",      NULL } };
-static pa_dbus_arg_info property_list_updated_args[]     = { { "property_list", "a{say}", NULL } };
+static pa_dbus_arg_info active_profile_updated_args[] = { { "profile",       "o",      NULL } };
+static pa_dbus_arg_info new_profile_args[] =            { { "profile",       "o",      NULL } };
+static pa_dbus_arg_info property_list_updated_args[] =  { { "property_list", "a{say}", NULL } };
 
 static pa_dbus_signal_info signals[SIGNAL_MAX] = {
-    [SIGNAL_ACTIVE_PROFILE_UPDATED]     = { .name = "ActiveProfileUpdated",     .arguments = active_profile_updated_args,    .n_arguments = 1 },
-    [SIGNAL_NEW_PROFILE]                = { .name = "NewProfile",               .arguments = new_profile_args,               .n_arguments = 1 },
-    [SIGNAL_PROFILE_AVAILABLE_CHANGED]  = { .name = "ProfileAvailableChanged",  .arguments = profile_available_changed_args, .n_arguments = 2 },
-    [SIGNAL_PROPERTY_LIST_UPDATED]      = { .name = "PropertyListUpdated",      .arguments = property_list_updated_args,     .n_arguments = 1 }
+    [SIGNAL_ACTIVE_PROFILE_UPDATED] = { .name = "ActiveProfileUpdated", .arguments = active_profile_updated_args, .n_arguments = 1 },
+    [SIGNAL_NEW_PROFILE]            = { .name = "NewProfile",           .arguments = new_profile_args,            .n_arguments = 1 },
+    [SIGNAL_PROPERTY_LIST_UPDATED]  = { .name = "PropertyListUpdated",  .arguments = property_list_updated_args,  .n_arguments = 1 }
 };
 
 static pa_dbus_interface_info card_interface_info = {
@@ -437,8 +432,37 @@ static void handle_get_profile_by_name(DBusConnection *conn, DBusMessage *msg, v
     pa_dbus_send_basic_value_reply(conn, msg, DBUS_TYPE_OBJECT_PATH, &profile_path);
 }
 
-static void check_card_proplist(pa_dbusiface_card *c) {
-    DBusMessage *signal_msg;
+static void subscription_cb(pa_core *core, pa_subscription_event_type_t t, uint32_t idx, void *userdata) {
+    pa_dbusiface_card *c = userdata;
+    DBusMessage *signal_msg = NULL;
+
+    pa_assert(core);
+    pa_assert((t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK) == PA_SUBSCRIPTION_EVENT_CARD);
+    pa_assert(c);
+
+    /* We can't use idx != c->card->index, because the c->card pointer may
+     * be stale at this point. */
+    if (pa_idxset_get_by_index(core->cards, idx) != c->card)
+        return;
+
+    if ((t & PA_SUBSCRIPTION_EVENT_TYPE_MASK) != PA_SUBSCRIPTION_EVENT_CHANGE)
+        return;
+
+    if (c->active_profile != c->card->active_profile) {
+        const char *object_path;
+
+        c->active_profile = c->card->active_profile;
+        object_path = pa_dbusiface_card_profile_get_path(pa_hashmap_get(c->profiles, c->active_profile->name));
+
+        pa_assert_se(signal_msg = dbus_message_new_signal(c->path,
+                                                          PA_DBUSIFACE_CARD_INTERFACE,
+                                                          signals[SIGNAL_ACTIVE_PROFILE_UPDATED].name));
+        pa_assert_se(dbus_message_append_args(signal_msg, DBUS_TYPE_OBJECT_PATH, &object_path, DBUS_TYPE_INVALID));
+
+        pa_dbus_protocol_send_signal(c->dbus_protocol, signal_msg);
+        dbus_message_unref(signal_msg);
+        signal_msg = NULL;
+    }
 
     if (!pa_proplist_equal(c->proplist, c->card->proplist)) {
         DBusMessageIter msg_iter;
@@ -453,33 +477,8 @@ static void check_card_proplist(pa_dbusiface_card *c) {
 
         pa_dbus_protocol_send_signal(c->dbus_protocol, signal_msg);
         dbus_message_unref(signal_msg);
+        signal_msg = NULL;
     }
-}
-
-static pa_hook_result_t card_profile_changed_cb(void *hook_data, void *call_data, void *slot_data) {
-    pa_dbusiface_card *c = slot_data;
-    pa_card_profile *profile = call_data;
-    const char *object_path;
-    DBusMessage *signal_msg;
-
-    if (profile->card != c->card)
-        return PA_HOOK_OK;
-
-    c->active_profile = c->card->active_profile;
-
-    object_path = pa_dbusiface_card_profile_get_path(pa_hashmap_get(c->profiles, c->active_profile->name));
-
-    pa_assert_se(signal_msg = dbus_message_new_signal(c->path,
-                                                      PA_DBUSIFACE_CARD_INTERFACE,
-                                                      signals[SIGNAL_ACTIVE_PROFILE_UPDATED].name));
-    pa_assert_se(dbus_message_append_args(signal_msg, DBUS_TYPE_OBJECT_PATH, &object_path, DBUS_TYPE_INVALID));
-
-    pa_dbus_protocol_send_signal(c->dbus_protocol, signal_msg);
-    dbus_message_unref(signal_msg);
-
-    check_card_proplist(c);
-
-    return PA_HOOK_OK;
 }
 
 static pa_hook_result_t card_profile_added_cb(void *hook_data, void *call_data, void *slot_data) {
@@ -507,39 +506,6 @@ static pa_hook_result_t card_profile_added_cb(void *hook_data, void *call_data, 
     pa_dbus_protocol_send_signal(c->dbus_protocol, signal_msg);
     dbus_message_unref(signal_msg);
 
-    check_card_proplist(c);
-
-    return PA_HOOK_OK;
-}
-
-static pa_hook_result_t card_profile_available_changed_cb(void *hook_data, void *call_data, void *slot_data) {
-    pa_dbusiface_card *c = slot_data;
-    pa_card_profile *profile = call_data;
-    pa_dbusiface_card_profile *p;
-    const char *object_path;
-    dbus_bool_t available;
-    DBusMessage *signal_msg;
-
-    if (profile->card != c->card)
-        return PA_HOOK_OK;
-
-    pa_assert_se((p = pa_hashmap_get(c->profiles, profile->name)));
-
-    object_path = pa_dbusiface_card_profile_get_path(p);
-    available = profile->available != PA_AVAILABLE_NO;
-
-    pa_assert_se(signal_msg = dbus_message_new_signal(c->path,
-                                                      PA_DBUSIFACE_CARD_INTERFACE,
-                                                      signals[SIGNAL_PROFILE_AVAILABLE_CHANGED].name));
-    pa_assert_se(dbus_message_append_args(signal_msg, DBUS_TYPE_OBJECT_PATH, &object_path,
-                                                      DBUS_TYPE_BOOLEAN, &available,
-                                                      DBUS_TYPE_INVALID));
-
-    pa_dbus_protocol_send_signal(c->dbus_protocol, signal_msg);
-    dbus_message_unref(signal_msg);
-
-    check_card_proplist(c);
-
     return PA_HOOK_OK;
 }
 
@@ -561,6 +527,7 @@ pa_dbusiface_card *pa_dbusiface_card_new(pa_dbusiface_core *core, pa_card *card)
     c->active_profile = card->active_profile;
     c->proplist = pa_proplist_copy(card->proplist);
     c->dbus_protocol = pa_dbus_protocol_get(card->core);
+    c->subscription = pa_subscription_new(card->core, PA_SUBSCRIPTION_MASK_CARD, subscription_cb, c);
 
     PA_HASHMAP_FOREACH(profile, card->profiles, state) {
         pa_dbusiface_card_profile *p = pa_dbusiface_card_profile_new(c, card->core, profile, c->next_profile_index++);
@@ -569,12 +536,8 @@ pa_dbusiface_card *pa_dbusiface_card_new(pa_dbusiface_core *core, pa_card *card)
 
     pa_assert_se(pa_dbus_protocol_add_interface(c->dbus_protocol, c->path, &card_interface_info, c) >= 0);
 
-    c->card_profile_changed_slot = pa_hook_connect(&card->core->hooks[PA_CORE_HOOK_CARD_PROFILE_CHANGED], PA_HOOK_NORMAL,
-                                                   card_profile_changed_cb, c);
     c->card_profile_added_slot = pa_hook_connect(&card->core->hooks[PA_CORE_HOOK_CARD_PROFILE_ADDED], PA_HOOK_NORMAL,
                                                  card_profile_added_cb, c);
-    c->card_profile_available_slot = pa_hook_connect(&card->core->hooks[PA_CORE_HOOK_CARD_PROFILE_AVAILABLE_CHANGED], PA_HOOK_NORMAL,
-                                                     card_profile_available_changed_cb, c);
 
     return c;
 }
@@ -585,12 +548,11 @@ void pa_dbusiface_card_free(pa_dbusiface_card *c) {
     pa_assert_se(pa_dbus_protocol_remove_interface(c->dbus_protocol, c->path, card_interface_info.name) >= 0);
 
     pa_hook_slot_free(c->card_profile_added_slot);
-    pa_hook_slot_free(c->card_profile_changed_slot);
-    pa_hook_slot_free(c->card_profile_available_slot);
 
     pa_hashmap_free(c->profiles);
     pa_proplist_free(c->proplist);
     pa_dbus_protocol_unref(c->dbus_protocol);
+    pa_subscription_free(c->subscription);
 
     pa_xfree(c->path);
     pa_xfree(c);

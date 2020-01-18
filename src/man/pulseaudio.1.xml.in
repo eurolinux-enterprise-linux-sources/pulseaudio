@@ -94,7 +94,7 @@ License along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
       different from starting PulseAudio without <opt>--start</opt>
       which would fail if PA is already running. PulseAudio is
       guaranteed to be fully initialized when this call
-      returns. Implies <opt>--daemonize</opt>.</p></optdesc>
+      returns. Implies <opt>--daemon</opt>.</p></optdesc>
     </option>
 
     <option>
@@ -130,9 +130,7 @@ License along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
       <p><opt>-D | --daemonize</opt><arg>[=BOOL]</arg></p>
 
       <optdesc><p>Daemonize after startup, i.e. detach from the
-      terminal. Note that when running as a systemd service you should
-      use <opt>--daemonize=no</opt> for systemd notification to work.
-      </p></optdesc>
+      terminal.</p></optdesc>
     </option>
 
     <option>
@@ -292,20 +290,11 @@ License along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
       <p><opt>--disable-shm</opt><arg>[=BOOL]</arg></p>
 
       <optdesc><p>PulseAudio clients and the server can exchange audio
-      data via POSIX or memfd shared memory segments (on systems that
-      support this). If disabled PulseAudio will communicate exclusively
-      over sockets. Please note that data transfer via shared memory
+      data via POSIX shared memory segments (on systems that support
+      this). If disabled PulseAudio will communicate exclusively over
+      sockets. Please note that data transfer via shared memory
       segments is always disabled when PulseAudio is running with
       <opt>--system</opt> enabled (see above).</p></optdesc>
-    </option>
-
-    <option>
-      <p><opt>--enable-memfd</opt><arg>[=BOOL]</arg></p>
-
-      <optdesc><p>PulseAudio clients and the server can exchange audio
-      data via memfds - the anonymous Linux Kernel shared memory mechanism
-      (on kernels that support this). If disabled PulseAudio will
-      communicate via POSIX shared memory.</p></optdesc>
     </option>
 
     <option>
@@ -468,9 +457,7 @@ License along with PulseAudio; if not, see <http://www.gnu.org/licenses/>.
     server addresses separated by whitespace which are tried in turn. A server
     address consists of an optional address type specifier (unix:, tcp:, tcp4:,
     tcp6:), followed by a path or host address. A host address may include an
-    optional port number. A server address may be prefixed by a string enclosed
-    in {}. In this case the following server address is ignored unless the prefix
-    string equals the local hostname or the machine id (/etc/machine-id).</p>
+    optional port number.</p>
 
     <p><arg>$PULSE_SINK</arg>: the symbolic name of the sink to connect to when a client creates a playback stream and doesn't explicitly ask for a specific sink.</p>
 

@@ -137,7 +137,7 @@ static int bluez5_sco_acquire_cb(pa_bluetooth_transport *t, bool optional, size_
     addr.sco_family = AF_BLUETOOTH;
     bacpy(&addr.sco_bdaddr, &dst);
 
-    pa_log_info("doing connect");
+    pa_log_info ("doing connect\n");
     err = connect(sock, (struct sockaddr *) &addr, sizeof(addr));
     if (err < 0 && !(errno == EAGAIN || errno == EINPROGRESS)) {
         pa_log_error("connect(): %s", pa_cstrerror(errno));
@@ -231,17 +231,14 @@ static void rfcomm_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_i
         ssize_t len;
         int gain;
 
-        len = pa_read(fd, buf, 511, NULL);
-        if (len < 0) {
-            pa_log_error("RFCOMM read error: %s", pa_cstrerror(errno));
-            goto fail;
-        }
+        len = read(fd, buf, 511);
         buf[len] = 0;
         pa_log_debug("RFCOMM << %s", buf);
 
         if (sscanf(buf, "AT+VGS=%d", &gain) == 1) {
           t->speaker_gain = gain;
           pa_hook_fire(pa_bluetooth_discovery_hook(t->device->discovery, PA_BLUETOOTH_HOOK_TRANSPORT_SPEAKER_GAIN_CHANGED), t);
+
         } else if (sscanf(buf, "AT+VGM=%d", &gain) == 1) {
           t->microphone_gain = gain;
           pa_hook_fire(pa_bluetooth_discovery_hook(t->device->discovery, PA_BLUETOOTH_HOOK_TRANSPORT_MICROPHONE_GAIN_CHANGED), t);
@@ -262,6 +259,7 @@ static void rfcomm_io_callback(pa_mainloop_api *io, pa_io_event *e, int fd, pa_i
 fail:
     pa_bluetooth_transport_unlink(t);
     pa_bluetooth_transport_free(t);
+    return;
 }
 
 static void transport_destroy(pa_bluetooth_transport *t) {
@@ -353,7 +351,7 @@ static DBusMessage *profile_new_connection(DBusConnection *conn, DBusMessage *m,
 
     p = PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT;
     pathfd = pa_sprintf_malloc ("%s/fd%d", path, fd);
-    t = pa_bluetooth_transport_new(d, sender, pathfd, p, NULL, 0);
+    d->transports[p] = t = pa_bluetooth_transport_new(d, sender, pathfd, p, NULL, 0);
     pa_xfree(pathfd);
 
     t->acquire = bluez5_sco_acquire_cb;

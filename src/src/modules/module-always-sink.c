@@ -47,6 +47,7 @@ static const char* const valid_modargs[] = {
 };
 
 struct userdata {
+    pa_hook_slot *put_slot, *unlink_slot;
     uint32_t null_module;
     bool ignore;
     char *sink_name;
@@ -60,15 +61,12 @@ static void load_null_sink_if_needed(pa_core *c, pa_sink *sink, struct userdata*
 
     pa_assert(c);
     pa_assert(u);
-
-    if (u->null_module != PA_INVALID_INDEX)
-        return; /* We've already got a null-sink loaded */
+    pa_assert(u->null_module == PA_INVALID_INDEX);
 
     /* Loop through all sinks and check to see if we have *any*
-     * sinks. Ignore the sink passed in (if it's not null), and
-     * don't count filter sinks. */
+     * sinks. Ignore the sink passed in (if it's not null) */
     PA_IDXSET_FOREACH(target, c->sinks, idx)
-        if (!sink || ((target != sink) && !pa_sink_is_filter(target)))
+        if (!sink || target != sink)
             break;
 
     if (target)
@@ -111,10 +109,6 @@ static pa_hook_result_t put_hook_callback(pa_core *c, pa_sink *sink, void* userd
 
     /* This is us detecting ourselves on load in a different way... just ignore this too. */
     if (sink->module && sink->module->index == u->null_module)
-        return PA_HOOK_OK;
-
-    /* We don't count filter sinks since they need a real sink */
-    if (pa_sink_is_filter(sink))
         return PA_HOOK_OK;
 
     pa_log_info("A new sink has been discovered. Unloading null-sink.");
@@ -161,8 +155,8 @@ int pa__init(pa_module*m) {
 
     m->userdata = u = pa_xnew(struct userdata, 1);
     u->sink_name = pa_xstrdup(pa_modargs_get_value(ma, "sink_name", DEFAULT_SINK_NAME));
-    pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_LATE, (pa_hook_cb_t) put_hook_callback, u);
-    pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY, (pa_hook_cb_t) unlink_hook_callback, u);
+    u->put_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_LATE, (pa_hook_cb_t) put_hook_callback, u);
+    u->unlink_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_EARLY, (pa_hook_cb_t) unlink_hook_callback, u);
     u->null_module = PA_INVALID_INDEX;
     u->ignore = false;
 
@@ -181,6 +175,10 @@ void pa__done(pa_module*m) {
     if (!(u = m->userdata))
         return;
 
+    if (u->put_slot)
+        pa_hook_slot_free(u->put_slot);
+    if (u->unlink_slot)
+        pa_hook_slot_free(u->unlink_slot);
     if (u->null_module != PA_INVALID_INDEX && m->core->state != PA_CORE_SHUTDOWN)
         pa_module_unload_request_by_index(m->core, u->null_module, true);
 

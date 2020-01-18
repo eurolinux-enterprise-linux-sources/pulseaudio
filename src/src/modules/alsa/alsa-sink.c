@@ -358,7 +358,7 @@ static void increase_watermark(struct userdata *u) {
         pa_sink_set_latency_range_within_thread(u->sink, new_min_latency, u->sink->thread_info.max_latency);
     }
 
-    /* When we reach this we're officially fucked! */
+    /* When we reach this we're officialy fucked! */
 }
 
 static void decrease_watermark(struct userdata *u) {
@@ -567,7 +567,7 @@ static int mmap_write(struct userdata *u, pa_usec_t *sleep_usec, bool polled, bo
             if (polled)
                 PA_ONCE_BEGIN {
                     char *dn = pa_alsa_get_driver_name_by_pcm(u->pcm_handle);
-                    pa_log(_("ALSA woke us up to write new data to the device, but there was actually nothing to write.\n"
+                    pa_log(_("ALSA woke us up to write new data to the device, but there was actually nothing to write!\n"
                              "Most likely this is a bug in the ALSA driver '%s'. Please report this issue to the ALSA developers.\n"
                              "We were woken up with POLLOUT set -- however a subsequent snd_pcm_avail() returned 0 or another value < min_avail."),
                            pa_strnull(dn));
@@ -1020,7 +1020,8 @@ static int update_sw_params(struct userdata *u) {
 /* Called from IO Context on unsuspend or from main thread when creating sink */
 static void reset_watermark(struct userdata *u, size_t tsched_watermark, pa_sample_spec *ss,
                             bool in_thread) {
-    u->tsched_watermark = pa_convert_size(tsched_watermark, ss, &u->sink->sample_spec);
+    u->tsched_watermark = pa_usec_to_bytes_round_up(pa_bytes_to_usec_round_up(tsched_watermark, ss),
+                                                    &u->sink->sample_spec);
 
     u->watermark_inc_step = pa_usec_to_bytes(TSCHED_WATERMARK_INC_STEP_USEC, &u->sink->sample_spec);
     u->watermark_dec_step = pa_usec_to_bytes(TSCHED_WATERMARK_DEC_STEP_USEC, &u->sink->sample_spec);
@@ -1627,10 +1628,8 @@ static int process_rewind(struct userdata *u) {
     pa_log_debug("Requested to rewind %lu bytes.", (unsigned long) rewind_nbytes);
 
     if (PA_UNLIKELY((unused = pa_alsa_safe_avail(u->pcm_handle, u->hwbuf_size, &u->sink->sample_spec)) < 0)) {
-        if (try_recover(u, "snd_pcm_avail", (int) unused) < 0) {
-            pa_log_warn("Trying to recover from underrun failed during rewind");
-            return -1;
-        }
+        pa_log("snd_pcm_avail() failed: %s", pa_alsa_strerror((int) unused));
+        return -1;
     }
 
     unused_nbytes = (size_t) unused * u->frame_size;
@@ -2012,8 +2011,6 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
     size_t frame_size;
     bool use_mmap = true, b, use_tsched = true, d, ignore_dB = false, namereg_fail = false, deferred_volume = false, set_formats = false, fixed_latency_range = false;
     pa_sink_new_data data;
-    bool volume_is_set;
-    bool mute_is_set;
     pa_alsa_profile_set *profile_set = NULL;
     void *state = NULL;
 
@@ -2115,11 +2112,7 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
     u->first = true;
     u->rewind_safeguard = rewind_safeguard;
     u->rtpoll = pa_rtpoll_new();
-
-    if (pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll) < 0) {
-        pa_log("pa_thread_mq_init() failed.");
-        goto fail;
-    }
+    pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 
     u->smoother = pa_smoother_new(
             SMOOTHER_ADJUST_USEC,
@@ -2149,15 +2142,6 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
 
     b = use_mmap;
     d = use_tsched;
-
-    /* Force ALSA to reread its configuration if module-alsa-card didn't
-     * do it for us. This matters if our device was hot-plugged after ALSA
-     * has already read its configuration - see
-     * https://bugs.freedesktop.org/show_bug.cgi?id=54029
-     */
-
-    if (!card)
-        snd_config_update_free_global();
 
     if (mapping) {
 
@@ -2239,13 +2223,7 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
             pa_log_info("Disabling latency range changes on underrun");
     }
 
-    /* All passthrough formats supported by PulseAudio require
-     * IEC61937 framing with two fake channels. So, passthrough
-     * clients will always send two channels. Multichannel sinks
-     * cannot accept that, because nobody implemented sink channel count
-     * switching so far. So just don't show known non-working settings
-     * to the user. */
-    if ((is_iec958(u) || is_hdmi(u)) && ss.channels == 2)
+    if (is_iec958(u) || is_hdmi(u))
         set_formats = true;
 
     u->rates = pa_alsa_get_supported_rates(u->pcm_handle, ss.rate);
@@ -2314,8 +2292,6 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
 
     u->sink = pa_sink_new(m->core, &data, PA_SINK_HARDWARE | PA_SINK_LATENCY | (u->use_tsched ? PA_SINK_DYNAMIC_LATENCY : 0) |
                           (set_formats ? PA_SINK_SET_FORMATS : 0));
-    volume_is_set = data.volume_is_set;
-    mute_is_set = data.muted_is_set;
     pa_sink_new_data_done(&data);
 
     if (!u->sink) {
@@ -2399,7 +2375,7 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
     thread_name = NULL;
 
     /* Get initial mixer settings */
-    if (volume_is_set) {
+    if (data.volume_is_set) {
         if (u->sink->set_volume)
             u->sink->set_volume(u->sink);
     } else {
@@ -2407,7 +2383,7 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
             u->sink->get_volume(u->sink);
     }
 
-    if (mute_is_set) {
+    if (data.muted_is_set) {
         if (u->sink->set_mute)
             u->sink->set_mute(u->sink);
     } else {
@@ -2419,7 +2395,7 @@ pa_sink *pa_alsa_sink_new(pa_module *m, pa_modargs *ma, const char*driver, pa_ca
         }
     }
 
-    if ((volume_is_set || mute_is_set) && u->sink->write_volume)
+    if ((data.volume_is_set || data.muted_is_set) && u->sink->write_volume)
         u->sink->write_volume(u->sink);
 
     if (set_formats) {

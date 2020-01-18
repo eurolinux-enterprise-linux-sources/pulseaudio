@@ -65,7 +65,7 @@ START_TEST (mult_s16_test) {
 
         if (a != b) {
             pa_log_debug("%d: %d != %d", i, a, b);
-            ck_abort();
+            fail();
         }
     }
 
@@ -93,10 +93,12 @@ int main(int argc, char *argv[]) {
     if (!getenv("MAKE_CHECK"))
         pa_log_set_level(PA_LOG_DEBUG);
 
-#ifdef HAVE_FAST_64BIT_OPERATIONS
-    pa_log_debug("Detected CPU with fast 64-bit operations.");
+#if __WORDSIZE == 64 || ((ULONG_MAX) > (UINT_MAX))
+    pa_log_debug("This seems to be 64-bit code.");
+#elif  __WORDSIZE == 32
+    pa_log_debug("This seems to be 32-bit code.");
 #else
-    pa_log_debug("Not detected CPU with fast 64-bit operations.");
+    pa_log_debug("Don't know if this is 32- or 64-bit code.");
 #endif
 
     s = suite_create("Mult-s16");

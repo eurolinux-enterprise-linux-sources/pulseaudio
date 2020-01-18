@@ -57,7 +57,7 @@ static void help(const char *argv0) {
     printf("%s %s %s\n", argv0, "set-(sink-input|source-output)-mute", _("#N 1|0"));
     printf("%s %s %s\n", argv0, "update-(sink|source)-proplist", _("NAME|#N KEY=VALUE"));
     printf("%s %s %s\n", argv0, "update-(sink-input|source-output)-proplist", _("#N KEY=VALUE"));
-    printf("%s %s %s\n", argv0, "set-default-(sink|source)", _("NAME|#N"));
+    printf("%s %s %s\n", argv0, "set-default(sink|source)", _("NAME|#N"));
     printf("%s %s %s\n", argv0, "kill-(client|sink-input|source-output)", _("#N"));
     printf("%s %s %s\n", argv0, "play-sample", _("NAME SINK|#N"));
     printf("%s %s %s\n", argv0, "remove-sample", _("NAME"));
@@ -73,7 +73,7 @@ static void help(const char *argv0) {
     printf("%s %s %s\n", argv0, "set-(sink|source)-port", _("NAME|#N PORT"));
     printf("%s %s %s\n", argv0, "set-port-latency-offset", _("CARD-NAME|CARD-#N PORT OFFSET"));
     printf("%s %s %s\n", argv0, "set-log-target", _("TARGET"));
-    printf("%s %s %s\n", argv0, "set-log-level", _("NUMERIC-LEVEL"));
+    printf("%s %s %s\n", argv0, "set-log-level", _("NUMERIC LEVEL"));
     printf("%s %s %s\n", argv0, "set-log-meta", _("1|0"));
     printf("%s %s %s\n", argv0, "set-log-time", _("1|0"));
     printf("%s %s %s\n", argv0, "set-log-backtrace", _("FRAMES"));

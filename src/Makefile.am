@@ -16,7 +16,6 @@
 ACLOCAL_AMFLAGS = -I m4
 
 EXTRA_DIST = \
-	AGPL \
 	bootstrap.sh \
 	git-version-gen \
 	LICENSE \
@@ -28,16 +27,12 @@ EXTRA_DIST = \
 	doxygen/doxygen.conf.in \
 	PROTOCOL \
 	README \
-	scripts/benchmark_memory_usage.sh \
-	scripts/plot_memory_usage.gp \
-	scripts/benchmarks/README \
 	todo \
 	.gitignore \
 	doxygen/.gitignore \
 	m4/.gitignore \
 	man/.gitignore \
 	po/.gitignore \
-	scripts/benchmarks/.gitignore \
 	src/.gitignore \
 	src/daemon/.gitignore \
 	src/pulse/.gitignore
@@ -64,7 +59,7 @@ endif
 cmakedir = $(libdir)/cmake/PulseAudio
 cmake_DATA = PulseAudioConfig.cmake PulseAudioConfigVersion.cmake
 
-bashcompletiondir=@bashcompletiondir@
+bashcompletiondir=$(sysconfdir)/bash_completion.d
 dist_bashcompletion_DATA = shell-completion/bash/pulseaudio
 
 install-bashcompletion-aliases:
@@ -118,4 +113,4 @@ $(top_srcdir)/.version:
 DISTCLEANFILES = \
         po/.intltool-merge-cache
 
-DISTCHECK_CONFIGURE_FLAGS = --with-udev-rules-dir="$$dc_install_base/lib/udev/rules.d" --with-systemduserunitdir="$$dc_install_base/lib/systemd/user" --with-bash-completion-dir="$$dc_install_base/share/bash-completion/completions"
+DISTCHECK_CONFIGURE_FLAGS = --with-udev-rules-dir="$$dc_install_base/lib/udev/rules.d"

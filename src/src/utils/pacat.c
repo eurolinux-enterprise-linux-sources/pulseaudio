@@ -50,29 +50,11 @@
 #define CLEAR_LINE "\x1B[K"
 
 static enum { RECORD, PLAYBACK } mode = PLAYBACK;
-static const char *purpose = NULL;
 
 static pa_context *context = NULL;
 static pa_stream *stream = NULL;
 static pa_mainloop_api *mainloop_api = NULL;
 
-/* Playback Mode (raw):
- *
- * We can only write audio to the PA stream in multiples of the stream's
- * sample-spec frame size. Meanwhile, the STDIN read(2) system call can return
- * a length much smaller than the frame-aligned size requested - leading to
- * invalid writes. This can be reproduced by choosing a starved STDIN backend
- * (e.g. "pacat /dev/random", "echo 1234 | pacat"), or an incomplete WAV file
- * in raw non-paplay mode.
- *
- * Solve this by writing only frame-aligned sizes, while caching the resulting
- * trailing partial frames here. This partial frame is then directly written
- * in the next stream write iteration. Rinse and repeat.
- */
-static void *partialframe_buf = NULL;
-static size_t partialframe_len = 0;
-
-/* Recording Mode buffers */
 static void *buffer = NULL;
 static size_t buffer_length = 0, buffer_index = 0;
 
@@ -170,6 +152,34 @@ static void start_drain(void) {
         quit(0);
 }
 
+/* Write some data to the stream */
+static void do_stream_write(size_t length) {
+    size_t l;
+    pa_assert(length);
+
+    if (!buffer || !buffer_length)
+        return;
+
+    l = length;
+    if (l > buffer_length)
+        l = buffer_length;
+
+    if (pa_stream_write(stream, (uint8_t*) buffer + buffer_index, l, NULL, 0, PA_SEEK_RELATIVE) < 0) {
+        pa_log(_("pa_stream_write() failed: %s"), pa_strerror(pa_context_errno(context)));
+        quit(1);
+        return;
+    }
+
+    buffer_length -= l;
+    buffer_index += l;
+
+    if (!buffer_length) {
+        pa_xfree(buffer);
+        buffer = NULL;
+        buffer_index = buffer_length = 0;
+    }
+}
+
 /* This is called whenever new data may be written to the stream */
 static void stream_write_callback(pa_stream *s, size_t length, void *userdata) {
     pa_assert(s);
@@ -180,6 +190,11 @@ static void stream_write_callback(pa_stream *s, size_t length, void *userdata) {
 
         if (stdio_event)
             mainloop_api->io_enable(stdio_event, PA_IO_EVENT_INPUT);
+
+        if (!buffer)
+            return;
+
+        do_stream_write(length);
 
     } else {
         sf_count_t bytes;
@@ -225,7 +240,7 @@ static void stream_write_callback(pa_stream *s, size_t length, void *userdata) {
     }
 }
 
-/* This is called whenever new data is available */
+/* This is called whenever new data may is available */
 static void stream_read_callback(pa_stream *s, size_t length, void *userdata) {
 
     pa_assert(s);
@@ -422,7 +437,7 @@ static void stream_event_callback(pa_stream *s, const char *name, pa_proplist *p
             pa_operation_unref(pa_stream_cork(s, 0, NULL, NULL));
         }
         if (cork_requests == 0)
-            pa_log(_("Warning: Received more uncork requests than cork requests."));
+            pa_log(_("Warning: Received more uncork requests than cork requests!"));
         else
             cork_requests--;
     }
@@ -524,34 +539,24 @@ fail:
 
 /* New data on STDIN **/
 static void stdin_callback(pa_mainloop_api*a, pa_io_event *e, int fd, pa_io_event_flags_t f, void *userdata) {
-    uint8_t *buf = NULL;
-    size_t writable, towrite, r;
+    size_t l, w = 0;
+    ssize_t r;
 
     pa_assert(a == mainloop_api);
     pa_assert(e);
     pa_assert(stdio_event == e);
 
-    /* Stream not ready? */
-    if (!stream || pa_stream_get_state(stream) != PA_STREAM_READY ||
-        !(writable = pa_stream_writable_size(stream))) {
-
+    if (buffer) {
         mainloop_api->io_enable(stdio_event, PA_IO_EVENT_NULL);
         return;
     }
 
-    if (pa_stream_begin_write(stream, (void **)&buf, &writable) < 0) {
-        pa_log(_("pa_stream_begin_write() failed: %s"), pa_strerror(pa_context_errno(context)));
-        quit(1);
-        return;
-    }
+    if (!stream || pa_stream_get_state(stream) != PA_STREAM_READY || !(l = w = pa_stream_writable_size(stream)))
+        l = 4096;
 
-    /* Partial frame cached from a previous write iteration? */
-    if (partialframe_len) {
-        pa_assert(partialframe_len < pa_frame_size(&sample_spec));
-        memcpy(buf, partialframe_buf, partialframe_len);
-    }
+    buffer = pa_xmalloc(l);
 
-    if ((r = pa_read(fd, buf + partialframe_len, writable - partialframe_len, userdata)) <= 0) {
+    if ((r = pa_read(fd, buffer, l, userdata)) <= 0) {
         if (r == 0) {
             if (verbose)
                 pa_log(_("Got EOF."));
@@ -567,23 +572,12 @@ static void stdin_callback(pa_mainloop_api*a, pa_io_event *e, int fd, pa_io_even
         stdio_event = NULL;
         return;
     }
-    r += partialframe_len;
 
-    /* Cache any trailing partial frames for the next write */
-    towrite = pa_frame_align(r, &sample_spec);
-    partialframe_len = r - towrite;
+    buffer_length = (uint32_t) r;
+    buffer_index = 0;
 
-    if (partialframe_len)
-        memcpy(partialframe_buf, buf + towrite, partialframe_len);
-
-    if (towrite) {
-        if (pa_stream_write(stream, buf, towrite, NULL, 0, PA_SEEK_RELATIVE) < 0) {
-            pa_log(_("pa_stream_write() failed: %s"), pa_strerror(pa_context_errno(context)));
-            quit(1);
-            return;
-        }
-    } else
-        pa_stream_cancel_write(stream);
+    if (w)
+        do_stream_write(w);
 }
 
 /* Some data may be written to STDOUT */
@@ -673,8 +667,7 @@ static void time_event_callback(pa_mainloop_api *m, pa_time_event *e, const stru
 
 static void help(const char *argv0) {
 
-    printf(_("%s [options]\n"
-             "%s\n\n"
+    printf(_("%s [options]\n\n"
              "  -h, --help                            Show this help\n"
              "      --version                         Show version\n\n"
              "  -r, --record                          Create a connection for recording\n"
@@ -710,7 +703,7 @@ static void help(const char *argv0) {
              "      --file-format[=FFORMAT]           Record/play formatted PCM data.\n"
              "      --list-file-formats               List available file formats.\n"
              "      --monitor-stream=INDEX            Record from the sink input with index INDEX.\n")
-           , argv0, purpose);
+           , argv0);
 }
 
 enum {
@@ -790,19 +783,15 @@ int main(int argc, char *argv[]) {
     if (strstr(bn, "play")) {
         mode = PLAYBACK;
         raw = false;
-        purpose = _("Play back encoded audio files on a PulseAudio sound server.");
     } else if (strstr(bn, "record")) {
         mode = RECORD;
         raw = false;
-        purpose = _("Capture audio data from a PulseAudio sound server and write it to a file.");
+    } else if (strstr(bn, "cat")) {
+        mode = PLAYBACK;
+        raw = true;
     } else if (strstr(bn, "rec") || strstr(bn, "mon")) {
         mode = RECORD;
         raw = true;
-        purpose = _("Capture audio data from a PulseAudio sound server and write it to STDOUT or the specified file.");
-    } else { /* pacat */
-        mode = PLAYBACK;
-        raw = true;
-        purpose = _("Play back audio data from STDIN or the specified file on a PulseAudio sound server.");
     }
 
     proplist = pa_proplist_new();
@@ -1152,9 +1141,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (raw && mode == PLAYBACK)
-        partialframe_buf = pa_xmalloc(pa_frame_size(&sample_spec));
-
     /* Set up a new main loop */
     if (!(m = pa_mainloop_new())) {
         pa_log(_("pa_mainloop_new() failed."));
@@ -1236,7 +1222,6 @@ quit:
 
     pa_xfree(silence_buffer);
     pa_xfree(buffer);
-    pa_xfree(partialframe_buf);
 
     pa_xfree(server);
     pa_xfree(device);

@@ -58,13 +58,13 @@ struct userdata {
     pa_hashmap *hashmap;
 };
 
-struct pa_module_info {
+struct module_info {
     char *path;
     uint32_t module;
 };
 
 static pa_hook_result_t load_module_for_device(pa_bluez4_discovery *y, const pa_bluez4_device *d, struct userdata *u) {
-    struct pa_module_info *mi;
+    struct module_info *mi;
 
     pa_assert(u);
     pa_assert(d);
@@ -97,7 +97,7 @@ static pa_hook_result_t load_module_for_device(pa_bluez4_discovery *y, const pa_
             pa_xfree(args);
 
             if (m) {
-                mi = pa_xnew(struct pa_module_info, 1);
+                mi = pa_xnew(struct module_info, 1);
                 mi->module = m->index;
                 mi->path = pa_xstrdup(d->path);
 
@@ -124,7 +124,7 @@ static pa_hook_result_t load_module_for_device(pa_bluez4_discovery *y, const pa_
 
 int pa__init(pa_module* m) {
     struct userdata *u;
-    pa_modargs *ma;
+    pa_modargs *ma = NULL;
 
     pa_assert(m);
 
@@ -140,6 +140,7 @@ int pa__init(pa_module* m) {
     u->module = m;
     u->core = m->core;
     u->modargs = ma;
+    ma = NULL;
     u->hashmap = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
     if (!(u->discovery = pa_bluez4_discovery_get(u->core)))
@@ -152,6 +153,9 @@ int pa__init(pa_module* m) {
 
 fail:
     pa__done(m);
+
+    if (ma)
+        pa_modargs_free(ma);
 
     return -1;
 }
@@ -171,7 +175,7 @@ void pa__done(pa_module* m) {
         pa_bluez4_discovery_unref(u->discovery);
 
     if (u->hashmap) {
-        struct pa_module_info *mi;
+        struct module_info *mi;
 
         while ((mi = pa_hashmap_steal_first(u->hashmap))) {
             pa_xfree(mi->path);

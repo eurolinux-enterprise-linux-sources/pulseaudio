@@ -180,8 +180,7 @@ static pa_usec_t get_latency_us(pa_object *o) {
     pa_sample_spec *ss;
     bool is_source;
     UInt32 v = 0, total = 0;
-    OSStatus err;
-    UInt32 size = sizeof(v);
+    UInt32 err, size = sizeof(v);
     AudioObjectPropertyAddress property_address;
     AudioObjectID stream_id;
 
@@ -212,7 +211,7 @@ static pa_usec_t get_latency_us(pa_object *o) {
     if (!err)
         total += v;
     else
-        pa_log_warn("Failed to get device latency: %d", err);
+        pa_log_warn("Failed to get device latency: %i", err);
 
     /* the IOProc buffer size */
     property_address.mSelector = kAudioDevicePropertyBufferFrameSize;
@@ -221,7 +220,7 @@ static pa_usec_t get_latency_us(pa_object *o) {
     if (!err)
         total += v;
     else
-        pa_log_warn("Failed to get buffer frame size: %d", err);
+        pa_log_warn("Failed to get buffer frame size: %i", err);
 
     /* IOProc safety offset - this value is the same for both directions, hence we divide it by 2 */
     property_address.mSelector = kAudioDevicePropertySafetyOffset;
@@ -230,7 +229,7 @@ static pa_usec_t get_latency_us(pa_object *o) {
     if (!err)
         total += v / 2;
     else
-        pa_log_warn("Failed to get safety offset: %d", err);
+        pa_log_warn("Failed to get safety offset: %i", err);
 
     /* get the stream latency.
      * FIXME: this assumes the stream latency is the same for all streams */
@@ -245,9 +244,9 @@ static pa_usec_t get_latency_us(pa_object *o) {
         if (!err)
             total += v;
         else
-            pa_log_warn("Failed to get stream latency: %d", err);
+            pa_log_warn("Failed to get stream latency: %i", err);
     } else
-        pa_log_warn("Failed to get streams: %d", err);
+        pa_log_warn("Failed to get streams: %i", err);
 
     return pa_bytes_to_usec(total * pa_frame_size(ss), ss);
 }
@@ -375,32 +374,6 @@ static int ca_sink_set_state(pa_sink *s, pa_sink_state_t state) {
     return 0;
 }
 
-/* Caveat: The caller is responsible to get rid of the CFString(Ref). */
-static char * CFString_to_cstr(CFStringRef cfstr) {
-    char *ret = NULL;
-
-    ret = false;
-
-    if (cfstr != NULL) {
-        const char *tmp = CFStringGetCStringPtr(cfstr, kCFStringEncodingUTF8);
-        CFIndex n = CFStringGetLength(cfstr) + 1 /* for the terminating NULL */;
-
-        ret = pa_xmalloc(n);
-
-        if (tmp == NULL) {
-            if (!CFStringGetCString(cfstr, ret, n, kCFStringEncodingUTF8)) {
-                pa_xfree(ret);
-                ret = NULL;
-            }
-        } else {
-            strncpy(ret, tmp, n - 1);
-            ret[n - 1] = '\0';
-        }
-    }
-
-    return ret;
-}
-
 static int ca_device_create_sink(pa_module *m, AudioBuffer *buf, int channel_idx) {
     OSStatus err;
     UInt32 size;
@@ -410,15 +383,9 @@ static int ca_device_create_sink(pa_module *m, AudioBuffer *buf, int channel_idx
     coreaudio_sink *ca_sink;
     pa_sink *sink;
     unsigned int i;
-    char *tmp;
+    char tmp[255];
     pa_strbuf *strbuf;
     AudioObjectPropertyAddress property_address;
-    CFStringRef tmp_cfstr = NULL;
-
-    if (buf->mNumberChannels > PA_CHANNELS_MAX) {
-        pa_log("Skipping device with more channels than we support (%u)", (unsigned int) buf->mNumberChannels);
-        return -1;
-    }
 
     ca_sink = pa_xnew0(coreaudio_sink, 1);
     ca_sink->map.channels = buf->mNumberChannels;
@@ -432,27 +399,18 @@ static int ca_device_create_sink(pa_module *m, AudioBuffer *buf, int channel_idx
         property_address.mSelector = kAudioObjectPropertyElementName;
         property_address.mScope = kAudioDevicePropertyScopeOutput;
         property_address.mElement = channel_idx + i + 1;
-        size = sizeof(tmp_cfstr);
-        err = AudioObjectGetPropertyData(u->object_id, &property_address, 0, NULL, &size, &tmp_cfstr);
-        if (err == 0) {
-            tmp = CFString_to_cstr(tmp_cfstr);
-
-            if (tmp_cfstr)
-                CFRelease(tmp_cfstr);
-        }
+        size = sizeof(tmp);
+        err = AudioObjectGetPropertyData(u->object_id, &property_address, 0, NULL, &size, tmp);
+        if (err || !strlen(tmp))
+            snprintf(tmp, sizeof(tmp), "Channel %d", (int) property_address.mElement);
 
         if (i > 0)
             pa_strbuf_puts(strbuf, ", ");
 
-        if (err || !tmp || !strlen(tmp))
-            pa_strbuf_printf(strbuf, "Channel %d", (int) property_address.mElement);
-        else
-            pa_strbuf_puts(strbuf, tmp);
-
-        pa_xfree(tmp);
+        pa_strbuf_puts(strbuf, tmp);
     }
 
-    ca_sink->name = pa_strbuf_to_string_free(strbuf);
+    ca_sink->name = pa_strbuf_tostring_free(strbuf);
 
     pa_log_debug("Stream name is >%s<", ca_sink->name);
 
@@ -543,15 +501,9 @@ static int ca_device_create_source(pa_module *m, AudioBuffer *buf, int channel_i
     coreaudio_source *ca_source;
     pa_source *source;
     unsigned int i;
-    char *tmp;
+    char tmp[255];
     pa_strbuf *strbuf;
     AudioObjectPropertyAddress property_address;
-    CFStringRef tmp_cfstr = NULL;
-
-    if (buf->mNumberChannels > PA_CHANNELS_MAX) {
-        pa_log("Skipping device with more channels than we support (%u)", (unsigned int) buf->mNumberChannels);
-        return -1;
-    }
 
     ca_source = pa_xnew0(coreaudio_source, 1);
     ca_source->map.channels = buf->mNumberChannels;
@@ -565,27 +517,18 @@ static int ca_device_create_source(pa_module *m, AudioBuffer *buf, int channel_i
         property_address.mSelector = kAudioObjectPropertyElementName;
         property_address.mScope = kAudioDevicePropertyScopeInput;
         property_address.mElement = channel_idx + i + 1;
-        size = sizeof(tmp_cfstr);
-        err = AudioObjectGetPropertyData(u->object_id, &property_address, 0, NULL, &size, &tmp_cfstr);
-        if (err == 0) {
-            tmp = CFString_to_cstr(tmp_cfstr);
-
-            if (tmp_cfstr)
-                CFRelease(tmp_cfstr);
-        }
+        size = sizeof(tmp);
+        err = AudioObjectGetPropertyData(u->object_id, &property_address, 0, NULL, &size, tmp);
+        if (err || !strlen(tmp))
+            snprintf(tmp, sizeof(tmp), "Channel %d", (int) property_address.mElement);
 
         if (i > 0)
             pa_strbuf_puts(strbuf, ", ");
 
-        if (err || !tmp || !strlen(tmp))
-            pa_strbuf_printf(strbuf, "Channel %d", (int) property_address.mElement);
-        else
-            pa_strbuf_puts(strbuf, tmp);
-
-        pa_xfree(tmp);
+        pa_strbuf_puts(strbuf, tmp);
     }
 
-    ca_source->name = pa_strbuf_to_string_free(strbuf);
+    ca_source->name = pa_strbuf_tostring_free(strbuf);
 
     pa_log_debug("Stream name is >%s<", ca_source->name);
 
@@ -821,22 +764,10 @@ int pa__init(pa_module *m) {
     pa_card_new_data_done(&card_new_data);
     u->card->userdata = u;
     u->card->set_profile = card_set_profile;
-    pa_card_choose_initial_profile(u->card);
-    pa_card_put(u->card);
 
     u->rtpoll = pa_rtpoll_new();
-
-    if (pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll) < 0) {
-        pa_log("pa_thread_mq_init() failed.");
-        goto fail;
-    }
-
+    pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
     u->async_msgq = pa_asyncmsgq_new(0);
-    if (!u->async_msgq) {
-        pa_log("pa_asyncmsgq_new() failed.");
-        goto fail;
-    }
-
     pa_rtpoll_item_new_asyncmsgq_read(u->rtpoll, PA_RTPOLL_EARLY-1, u->async_msgq);
 
     PA_LLIST_HEAD_INIT(coreaudio_sink, u->sinks);
@@ -920,10 +851,8 @@ void pa__done(pa_module *m) {
         pa_asyncmsgq_send(u->thread_mq.inq, NULL, PA_MESSAGE_SHUTDOWN, NULL, 0, NULL);
         pa_thread_free(u->thread);
         pa_thread_mq_done(&u->thread_mq);
-    }
-
-    if (u->async_msgq)
         pa_asyncmsgq_unref(u->async_msgq);
+    }
 
     /* free sinks */
     for (ca_sink = u->sinks; ca_sink;) {

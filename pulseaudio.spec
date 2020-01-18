@@ -1,61 +1,30 @@
-%global pa_major   10.0
+%global pa_major   6.0
 #global pa_minor   0
 
-#global snap       20141103
-#global gitrel     327
-#global gitcommit  aec811798cd883a454b9b5cd82c77831906bbd2d
-#global shortcommit (c=%{gitcommit}; echo ${c:0:5})
-
-%ifarch x86_64 %{arm}
+%ifarch %{ix86} x86_64 %{arm}
 %global with_webrtc 1
 %endif
 
-# https://bugzilla.redhat.com/983606
 %global _hardened_build 1
-
-## enable systemd activation
-%global systemd 1
-
-## comment to disable tests
-#global tests 1
-
-# where/how to apply multilib hacks
-%global multilib_archs x86_64 %{ix86} ppc64 ppc s390x s390 sparc64 sparcv9 ppc64le
 
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        %{pa_major}%{?pa_minor:.%{pa_minor}}
-Release:        3%{?snap:.%{snap}git%{shortcommit}}%{?dist}
+Release:        7%{?snap:.%{snap}git%{shortcommit}}%{?dist}
 License:        LGPLv2+
 URL:            http://www.freedesktop.org/wiki/Software/PulseAudio
-%if 0%{?gitrel}
-# git clone git://anongit.freedesktop.org/pulseaudio/pulseaudio
-# cd pulseaudio; git reset --hard %{gitcommit}; ./autogen.sh; make; make distcheck
-Source0:        pulseaudio-%{version}-%{gitrel}-g%{shortcommit}.tar.xz
-%else
 Source0:        http://freedesktop.org/software/pulseaudio/releases/pulseaudio-%{version}.tar.xz
 Source1:        http://freedesktop.org/software/pulseaudio/releases/pulseaudio-%{version}.tar.xz.md5
 Source2:        http://freedesktop.org/software/pulseaudio/releases/pulseaudio-%{version}.tar.xz.sha1
-%endif
 
 Source5:        default.pa-for-gdm
-
-# revert upstream commit to rely solely on autospawn for autostart, instead
-# include a fallback to manual launch when autospawn fails, like when
-# user disables autospawn, or logging in as root
-Patch1: pulseaudio-autostart.patch
-
-# disable flat-volumes by default
-# https://bugzilla.redhat.com/show_bug.cgi?id=1265267
-Patch2: pulseaudio-9.0-disable_flat_volumes.patch
-
-# bz#1067470,  only start threads on activ CPUs
-# see also https://bugs.freedesktop.org/show_bug.cgi?id=96638
-Patch3: pulseaudio-8.99.2-getaffinity.patch
 
 ## upstream patches
 
 ## upstreamable patches
+Patch101: 0001-Avoid-multilib-conflict-in-usr-bin-padsp.patch
+Patch102: 0002-Add-korean-translation.patch
+Patch103: pulseaudio-autostart.patch
 
 BuildRequires:  automake libtool
 BuildRequires:  pkgconfig(bash-completion)
@@ -67,6 +36,7 @@ BuildRequires:  pkgconfig
 BuildRequires:  doxygen
 BuildRequires:  xmltoman
 BuildRequires:  tcp_wrappers-devel
+BuildRequires:  libsamplerate-devel
 BuildRequires:  libsndfile-devel
 BuildRequires:  alsa-lib-devel
 BuildRequires:  glib2-devel
@@ -94,20 +64,15 @@ BuildRequires:  xcb-util-devel
 BuildRequires:  openssl-devel
 BuildRequires:  orc-devel
 BuildRequires:  libtdb-devel
-%if 0%{?fedora}
-BuildRequires:  pkgconfig(soxr)
-%endif
-BuildRequires:  pkgconfig(speexdsp) >= 1.2
+BuildRequires:  speex-devel >= 1.2
 BuildRequires:  libasyncns-devel
 BuildRequires:  systemd-devel >= 184
+BuildRequires:  json-c-devel
 BuildRequires:  dbus-devel
 BuildRequires:  libcap-devel
 BuildRequires:  pkgconfig(fftw3f)
 %if 0%{?with_webrtc}
-BuildRequires:  pkgconfig(webrtc-audio-processing) >= 0.2
-%endif
-%if 0%{?tests}
-BuildRequires:  pkgconfig(check)
+BuildRequires:  webrtc-audio-processing-devel
 %endif
 
 # retired along with -libs-zeroconf, add Obsoletes here for lack of anything better
@@ -167,7 +132,7 @@ Requires:       %{name}-utils
 %description module-zeroconf
 Zeroconf publishing module for the PulseAudio sound server.
 
-%if 0%{?bluez4} || 0%{?bluez5}
+%ifnarch s390 s390x
 %package module-bluetooth
 Summary:        Bluetooth support for the PulseAudio sound server
 Requires:       %{name}%{?_isa} = %{version}-%{release}
@@ -248,9 +213,9 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %prep
 %setup -q -T -b0 -n %{name}-%{version}%{?gitrel:-%{gitrel}-g%{shortcommit}}
 
-%patch1 -p1 -b .autostart
-%patch2 -p1 -b .disable_flat_volumes
-%patch3 -p1 -b .affinity
+%patch101 -p1 -b .101
+%patch102 -p1 -b .102
+%patch103 -p1 -b .103
 
 sed -i.no_consolekit -e \
   's/^load-module module-console-kit/#load-module module-console-kit/' \
@@ -280,14 +245,15 @@ sed -i -e 's|"/lib /usr/lib|"/%{_lib} %{_libdir}|' configure
   %{?enable_lirc:--enable-lirc}%{!?enable_lirc:--disable-lirc} \
   %{?bluez4:--enable-bluez4}%{!?bluez4:--disable-bluez4} \
   %{?bluez5:--enable-bluez5}%{!?bluez5:--disable-bluez5} \
+  --disable-bluez5-ofono-headset \
 %ifarch %{arm}
   --disable-neon-opt \
 %endif
+  --disable-systemd-daemon \
 %if 0%{?with_webrtc}
   --enable-webrtc-aec \
 %endif
-  %{!?systemd:--disable-systemd-daemon} \
-  %{?tests:--enable-tests}
+  --disable-tests
 
 # we really should preopen here --preopen-mods=module-udev-detect.la, --force-preopen
 make %{?_smp_mflags} V=1
@@ -297,35 +263,23 @@ make doxygen
 %install
 make install DESTDIR=$RPM_BUILD_ROOT
 
-## padsp multilib hack alert
-%ifarch %{multilib_archs}
-pushd %{buildroot}%{_bindir}
-# make 32 bit version available as padsp-32
-# %%{_libdir} == /usr/lib may be a naive check for 32bit-ness
-# but should be the only case we care about here -- rex
-%if "%{_libdir}" == "/usr/lib"
-ln -s padsp padsp-32
-%else
-cp -a padsp padsp-32
-sed -i -e "s|%{_libdir}/pulseaudio/libpulsedsp.so|/usr/lib/pulseaudio/libpulsedsp.so|g" padsp-32
-%endif
-popd
-%endif
-
 # upstream should use udev.pc
 mkdir -p $RPM_BUILD_ROOT%{_prefix}/lib/udev/rules.d
 mv -fv $RPM_BUILD_ROOT/lib/udev/rules.d/90-pulseaudio.rules $RPM_BUILD_ROOT%{_prefix}/lib/udev/rules.d
 
-# /var/lib/pulse seems unused, can consider dropping it?  -- rex
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/lib/pulse
-mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/run/pulse
 install -p -m644 -D %{SOURCE5} $RPM_BUILD_ROOT%{_localstatedir}/lib/gdm/.pulse/default.pa
+
+# bash completions
+%if "%{bash_completionsdir}" != "/etc/bash_completion.d"
+mkdir -p $RPM_BUILD_ROOT%{bash_completionsdir}
+mv $RPM_BUILD_ROOT/etc/bash_completion.d/* \
+   $RPM_BUILD_ROOT%{bash_completionsdir}/
+%endif
 
 ## unpackaged files
 # extraneous libtool crud
-rm -fv $RPM_BUILD_ROOT%{_libdir}/lib*.la
-rm -fv $RPM_BUILD_ROOT%{_libdir}/pulseaudio/lib*.la
-rm -fv $RPM_BUILD_ROOT%{_libdir}/pulse-%{pa_major}/modules/*.la
+rm -fv $RPM_BUILD_ROOT%{_libdir}/*.la $RPM_BUILD_ROOT%{_libdir}/pulse-%{pa_major}/modules/*.la
 # PA_MODULE_DEPRECATED("Please use module-udev-detect instead of module-detect!");
 rm -fv $RPM_BUILD_ROOT%{_libdir}/pulse-%{pa_major}/modules/module-detect.so
 
@@ -333,8 +287,12 @@ rm -fv $RPM_BUILD_ROOT%{_libdir}/pulse-%{pa_major}/modules/module-detect.so
 
 
 %check
-%if 0%{?tests}
-make %{?_smp_mflags} check
+# don't fail build due failing tests on big endian arches (rhbz#1067470)
+make check \
+%ifarch ppc %{power64} s390 s390x
+  || :
+%else
+  %{nil}
 %endif
 
 
@@ -344,9 +302,9 @@ getent group pulse-rt >/dev/null || groupadd -r pulse-rt
 getent group pulse >/dev/null || groupadd -f -g 171 -r pulse
 if ! getent passwd pulse >/dev/null ; then
     if ! getent passwd 171 >/dev/null ; then
-      useradd -r -u 171 -g pulse -d %{_localstatedir}/run/pulse -s /sbin/nologin -c "PulseAudio System Daemon" pulse
+      useradd -r -u 171 -g pulse -d /var/run/pulse -s /sbin/nologin -c "PulseAudio System Daemon" pulse
     else
-      useradd -r -g pulse -d %{_localstatedir}/run/pulse -s /sbin/nologin -c "PulseAudio System Daemon" pulse
+      useradd -r -g pulse -d /var/run/pulse -s /sbin/nologin -c "PulseAudio System Daemon" pulse
     fi
 fi
 exit 0
@@ -363,16 +321,17 @@ exit 0
 
 %files
 %doc README LICENSE GPL LGPL
+## already owned by -libs, see also https://bugzilla.redhat.com/show_bug.cgi?id=909690
+#dir %{_sysconfdir}/pulse/
 %config(noreplace) %{_sysconfdir}/pulse/daemon.conf
 %config(noreplace) %{_sysconfdir}/pulse/default.pa
 %config(noreplace) %{_sysconfdir}/pulse/system.pa
 %{_sysconfdir}/dbus-1/system.d/pulseaudio-system.conf
 %{bash_completionsdir}/*
-%if 0%{?systemd}
-%{_userunitdir}/pulseaudio.*
-%endif
+#{_prefix}/lib/systemd/user/pulseaudio.service
+#{_prefix}/lib/systemd/user/pulseaudio.socket
 %{_bindir}/pulseaudio
-%{_libdir}/pulseaudio/libpulsecore-%{pa_major}.so
+%{_libdir}/libpulsecore-%{pa_major}.so
 %dir %{_libdir}/pulse-%{pa_major}/
 %dir %{_libdir}/pulse-%{pa_major}/modules/
 %{_libdir}/pulse-%{pa_major}/modules/libalsa-util.so
@@ -386,7 +345,6 @@ exit 0
 %if 0%{?with_webrtc}
 %{_libdir}/pulse-%{pa_major}/modules/libwebrtc-util.so
 %endif
-%{_libdir}/pulse-%{pa_major}/modules/module-allow-passthrough.so
 %{_libdir}/pulse-%{pa_major}/modules/module-alsa-sink.so
 %{_libdir}/pulse-%{pa_major}/modules/module-alsa-source.so
 %{_libdir}/pulse-%{pa_major}/modules/module-alsa-card.so
@@ -465,7 +423,6 @@ exit 0
 %{_prefix}/lib/udev/rules.d/90-pulseaudio.rules
 %dir %{_libexecdir}/pulse
 %attr(0700, pulse, pulse) %dir %{_localstatedir}/lib/pulse
-%attr(0700, pulse, pulse) %dir %{_localstatedir}/run/pulse
 %dir %{_datadir}/zsh/
 %dir %{_datadir}/zsh/site-functions/
 %{_datadir}/zsh/site-functions/_pulseaudio
@@ -531,8 +488,8 @@ exit 0
 %{_libdir}/libpulse.so.0*
 %{_libdir}/libpulse-simple.so.0*
 %dir %{_libdir}/pulseaudio/
-%{_libdir}/pulseaudio/libpulsecommon-%{pa_major}.so
-%{_libdir}/pulseaudio/libpulsedsp.so
+%{_libdir}/pulseaudio/libpulsecommon-%{pa_major}.*
+%{_libdir}/pulseaudio/libpulsedsp.*
 
 %post libs-glib2 -p /sbin/ldconfig
 %postun libs-glib2 -p /sbin/ldconfig
@@ -569,44 +526,20 @@ exit 0
 %{_bindir}/parecord
 %{_bindir}/pax11publish
 %{_bindir}/padsp
-%ifarch %{multilib_archs}
-%{_bindir}/padsp-32
-%endif
 %{_bindir}/pasuspender
-%{_mandir}/man1/pacat.1*
-%{_mandir}/man1/pacmd.1*
-%{_mandir}/man1/pactl.1*
-%{_mandir}/man1/padsp.1*
-%{_mandir}/man1/pamon.1*
-%{_mandir}/man1/paplay.1*
-%{_mandir}/man1/parec.1*
-%{_mandir}/man1/parecord.1*
-%{_mandir}/man1/pasuspender.1*
-%{_mandir}/man1/pax11publish.1*
+%{_mandir}/man1/pacat.1.gz
+%{_mandir}/man1/pacmd.1.gz
+%{_mandir}/man1/pactl.1.gz
+%{_mandir}/man1/paplay.1.gz
+%{_mandir}/man1/pasuspender.1.gz
+%{_mandir}/man1/padsp.1.gz
+%{_mandir}/man1/pax11publish.1.gz
 
-## pulseaudio should be using .config/pulse/ these days anyway
-## TODO: move this to gdm packaging under /var/lib/gdm/.config/pulse -- rex
 %files gdm-hooks
 %attr(0700, gdm, gdm) %dir %{_localstatedir}/lib/gdm/.pulse
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
-* Thu Mar 09 2017 Wim Taymans <wtaymans@redhat.com> - 10.0-3
-- Add more Requires to avoid testing multiple versions
-- Resolves: #1387036
-
-* Thu Feb 09 2017 Wim Taymans <wtaymans@redhat.com> - 10.0-2
-- enable webrtc
-- Resolves: #1387036
-
-* Thu Jan 19 2017 Kalev Lember <klember@redhat.com> - 10.0-1
-- Update to 10.0
-- Resolves: #1387036
-
-* Mon Jun 27 2016 Wim Taymans <wtaymans@redhat.com> - 6.0-8
-- update translations
-- Resolves: #1272897
-
 * Mon Jun 22 2015 Rex Dieter <rdieter@fedoraproject.org> - 6.0-7
 - better autostart.patch, handle case were autospawn is disabled
   (or otherwise doesn't work, like for root user)

@@ -34,5 +34,3 @@ missing
 mkinstalldirs
 stamp-*
 .dirstamp
-*.orig
-*.rej

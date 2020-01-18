@@ -252,26 +252,26 @@ static pa_memblock* generate_block(pa_mempool *pool, const pa_sample_spec *ss) {
 }
 
 static void help(const char *argv0) {
-    printf("%s [options]\n\n"
-           "-h, --help                            Show this help\n"
-           "-v, --verbose                         Print debug messages\n"
-           "      --from-rate=SAMPLERATE          From sample rate in Hz (defaults to 44100)\n"
-           "      --from-format=SAMPLEFORMAT      From sample type (defaults to s16le)\n"
-           "      --from-channels=CHANNELS        From number of channels (defaults to 1)\n"
-           "      --to-rate=SAMPLERATE            To sample rate in Hz (defaults to 44100)\n"
-           "      --to-format=SAMPLEFORMAT        To sample type (defaults to s16le)\n"
-           "      --to-channels=CHANNELS          To number of channels (defaults to 1)\n"
-           "      --resample-method=METHOD        Resample method (defaults to auto)\n"
-           "      --seconds=SECONDS               From stream duration (defaults to 60)\n"
-           "\n"
-           "If the formats are not specified, the test performs all formats combinations,\n"
-           "back and forth.\n"
-           "\n"
-           "Sample type must be one of s16le, s16be, u8, float32le, float32be, ulaw, alaw,\n"
-           "s24le, s24be, s24-32le, s24-32be, s32le, s32be (defaults to s16ne)\n"
-           "\n"
-           "See --dump-resample-methods for possible values of resample methods.\n",
-           argv0);
+    printf(_("%s [options]\n\n"
+             "-h, --help                            Show this help\n"
+             "-v, --verbose                         Print debug messages\n"
+             "      --from-rate=SAMPLERATE          From sample rate in Hz (defaults to 44100)\n"
+             "      --from-format=SAMPLEFORMAT      From sample type (defaults to s16le)\n"
+             "      --from-channels=CHANNELS        From number of channels (defaults to 1)\n"
+             "      --to-rate=SAMPLERATE            To sample rate in Hz (defaults to 44100)\n"
+             "      --to-format=SAMPLEFORMAT        To sample type (defaults to s16le)\n"
+             "      --to-channels=CHANNELS          To number of channels (defaults to 1)\n"
+             "      --resample-method=METHOD        Resample method (defaults to auto)\n"
+             "      --seconds=SECONDS               From stream duration (defaults to 60)\n"
+             "\n"
+             "If the formats are not specified, the test performs all formats combinations,\n"
+             "back and forth.\n"
+             "\n"
+             "Sample type must be one of s16le, s16be, u8, float32le, float32be, ulaw, alaw,\n"
+             "s24le, s24be, s24-32le, s24-32be, s32le, s32be (defaults to s16ne)\n"
+             "\n"
+             "See --dump-resample-methods for possible values of resample methods.\n"),
+             argv0);
 }
 
 enum {
@@ -303,7 +303,6 @@ int main(int argc, char *argv[]) {
     bool all_formats = true;
     pa_resample_method_t method;
     int seconds;
-    unsigned crossover_freq = 120;
 
     static const struct option long_options[] = {
         {"help",                  0, NULL, 'h'},
@@ -330,6 +329,8 @@ int main(int argc, char *argv[]) {
     if (!getenv("MAKE_CHECK"))
         pa_log_set_level(PA_LOG_INFO);
 
+    pa_assert_se(pool = pa_mempool_new(false, 0));
+
     a.channels = b.channels = 1;
     a.rate = b.rate = 44100;
     a.format = b.format = PA_SAMPLE_S16LE;
@@ -350,7 +351,7 @@ int main(int argc, char *argv[]) {
                 break;
 
             case ARG_VERSION:
-                printf("%s %s\n", argv[0], PACKAGE_VERSION);
+                printf(_("%s %s\n"), argv[0], PACKAGE_VERSION);
                 ret = 0;
                 goto quit;
 
@@ -404,7 +405,7 @@ int main(int argc, char *argv[]) {
     }
 
     ret = 0;
-    pa_assert_se(pool = pa_mempool_new(PA_MEM_TYPE_PRIVATE, 0, true));
+    pa_assert_se(pool = pa_mempool_new(false, 0));
 
     if (!all_formats) {
 
@@ -418,7 +419,7 @@ int main(int argc, char *argv[]) {
                    b.rate, b.channels, pa_sample_format_to_string(b.format));
 
         ts = pa_rtclock_now();
-        pa_assert_se(resampler = pa_resampler_new(pool, &a, NULL, &b, NULL, crossover_freq, method, 0));
+        pa_assert_se(resampler = pa_resampler_new(pool, &a, NULL, &b, NULL, method, 0));
         pa_log_info("init: %llu", (long long unsigned)(pa_rtclock_now() - ts));
 
         i.memblock = pa_memblock_new(pool, pa_usec_to_bytes(1*PA_USEC_PER_SEC, &a));
@@ -449,8 +450,8 @@ int main(int argc, char *argv[]) {
                        pa_sample_format_to_string(b.format),
                        pa_sample_format_to_string(a.format));
 
-            pa_assert_se(forth = pa_resampler_new(pool, &a, NULL, &b, NULL, crossover_freq, method, 0));
-            pa_assert_se(back = pa_resampler_new(pool, &b, NULL, &a, NULL, crossover_freq, method, 0));
+            pa_assert_se(forth = pa_resampler_new(pool, &a, NULL, &b, NULL, method, 0));
+            pa_assert_se(back = pa_resampler_new(pool, &b, NULL, &a, NULL, method, 0));
 
             i.memblock = generate_block(pool, &a);
             i.length = pa_memblock_get_length(i.memblock);
@@ -473,7 +474,7 @@ int main(int argc, char *argv[]) {
 
  quit:
     if (pool)
-        pa_mempool_unref(pool);
+        pa_mempool_free(pool);
 
     return ret;
 }

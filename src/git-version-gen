@@ -84,10 +84,7 @@ then
     v=`cat $tarball_version_file` || exit 1
     case $v in
 	*$nl*) v= ;; # reject multi-line output
-	[0-9]*)
-		echo "$v" | tr -d '\012'
-		exit 0
-		;;
+	[0-9]*) ;;
 	*) v= ;;
     esac
     test -z "$v" \

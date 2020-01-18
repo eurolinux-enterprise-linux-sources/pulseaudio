@@ -530,7 +530,6 @@ int pa_memblockq_peek(pa_memblockq* bq, pa_memchunk *chunk) {
 }
 
 int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchunk *chunk) {
-    pa_mempool *pool;
     pa_memchunk tchunk, rchunk;
     int64_t ri;
     struct list_item *item;
@@ -549,11 +548,9 @@ int pa_memblockq_peek_fixed_size(pa_memblockq *bq, size_t block_size, pa_memchun
         return 0;
     }
 
-    pool = pa_memblock_get_pool(tchunk.memblock);
-    rchunk.memblock = pa_memblock_new(pool, block_size);
+    rchunk.memblock = pa_memblock_new(pa_memblock_get_pool(tchunk.memblock), block_size);
     rchunk.index = 0;
     rchunk.length = tchunk.length;
-    pa_mempool_unref(pool), pool = NULL;
 
     pa_memchunk_memcpy(&rchunk, &tchunk);
     pa_memblock_unref(tchunk.memblock);
@@ -678,6 +675,18 @@ size_t pa_memblockq_get_length(pa_memblockq *bq) {
         return 0;
 
     return (size_t) (bq->write_index - bq->read_index);
+}
+
+size_t pa_memblockq_missing(pa_memblockq *bq) {
+    size_t l;
+    pa_assert(bq);
+
+    if ((l = pa_memblockq_get_length(bq)) >= bq->tlength)
+        return 0;
+
+    l = bq->tlength - l;
+
+    return l >= bq->minreq ? l : 0;
 }
 
 void pa_memblockq_seek(pa_memblockq *bq, int64_t offset, pa_seek_mode_t seek, bool account) {
@@ -826,10 +835,6 @@ size_t pa_memblockq_pop_missing(pa_memblockq *bq) {
 #endif
 
     if (bq->missing <= 0)
-        return 0;
-
-    if (((size_t) bq->missing < bq->minreq) &&
-        !pa_memblockq_prebuf_active(bq))
         return 0;
 
     l = (size_t) bq->missing;

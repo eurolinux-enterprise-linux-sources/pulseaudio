@@ -298,7 +298,7 @@ int pa_rtpoll_run(pa_rtpoll *p) {
         p->timestamp = now;
         if (!p->quit && p->timer_enabled)
             pa_log("poll timeout: %d ms ",(int) ((timeout.tv_sec*1000) + (timeout.tv_usec / 1000)));
-        else if (p->quit)
+        else if (q->quit)
             pa_log("poll timeout is ZERO");
         else
             pa_log("poll timeout is FOREVER");
@@ -557,9 +557,7 @@ static int asyncmsgq_read_work(pa_rtpoll_item *i) {
 
         if (!object && code == PA_MESSAGE_SHUTDOWN) {
             pa_asyncmsgq_done(i->userdata, 0);
-            /* Requests the loop to exit. Will cause the next iteration of
-             * pa_rtpoll_run() to return 0 */
-            i->rtpoll->quit = true;
+            pa_rtpoll_quit(i->rtpoll);
             return 1;
         }
 
@@ -625,6 +623,12 @@ pa_rtpoll_item *pa_rtpoll_item_new_asyncmsgq_write(pa_rtpoll *p, pa_rtpoll_prior
     i->userdata = q;
 
     return i;
+}
+
+void pa_rtpoll_quit(pa_rtpoll *p) {
+    pa_assert(p);
+
+    p->quit = true;
 }
 
 bool pa_rtpoll_timer_elapsed(pa_rtpoll *p) {

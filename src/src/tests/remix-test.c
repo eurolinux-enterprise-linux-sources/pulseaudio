@@ -47,11 +47,10 @@ int main(int argc, char *argv[]) {
 
     unsigned i, j;
     pa_mempool *pool;
-    unsigned crossover_freq = 120;
 
     pa_log_set_level(PA_LOG_DEBUG);
 
-    pa_assert_se(pool = pa_mempool_new(PA_MEM_TYPE_PRIVATE, 0, true));
+    pa_assert_se(pool = pa_mempool_new(false, 0));
 
     for (i = 0; maps[i].channels > 0; i++)
         for (j = 0; maps[j].channels > 0; j++) {
@@ -59,7 +58,7 @@ int main(int argc, char *argv[]) {
             pa_resampler *r;
             pa_sample_spec ss1, ss2;
 
-            pa_log_info("Converting from '%s' to '%s'.", pa_channel_map_snprint(a, sizeof(a), &maps[i]), pa_channel_map_snprint(b, sizeof(b), &maps[j]));
+            pa_log_info("Converting from '%s' to '%s'.\n", pa_channel_map_snprint(a, sizeof(a), &maps[i]), pa_channel_map_snprint(b, sizeof(b), &maps[j]));
 
             ss1.channels = maps[i].channels;
             ss2.channels = maps[j].channels;
@@ -67,7 +66,7 @@ int main(int argc, char *argv[]) {
             ss1.rate = ss2.rate = 44100;
             ss1.format = ss2.format = PA_SAMPLE_S16NE;
 
-            r = pa_resampler_new(pool, &ss1, &maps[i], &ss2, &maps[j], crossover_freq, PA_RESAMPLER_AUTO, 0);
+            r = pa_resampler_new(pool, &ss1, &maps[i], &ss2, &maps[j], PA_RESAMPLER_AUTO, 0);
 
             /* We don't really care for the resampler. We just want to
              * see the remixing debug output. */
@@ -75,7 +74,7 @@ int main(int argc, char *argv[]) {
             pa_resampler_free(r);
         }
 
-    pa_mempool_unref(pool);
+    pa_mempool_free(pool);
 
     return 0;
 }

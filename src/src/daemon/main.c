@@ -140,7 +140,7 @@ static void signal_callback(pa_mainloop_api*m, pa_signal_event *e, int sig, void
         case SIGTERM:
         default:
             pa_log_info("Exiting.");
-            m->quit(m, 0);
+            m->quit(m, 1);
             break;
     }
 }
@@ -550,7 +550,7 @@ int main(int argc, char *argv[]) {
         case PA_CMD_DUMP_CONF: {
 
             if (d < argc) {
-                pa_log("Too many arguments.");
+                pa_log("Too many arguments.\n");
                 goto finish;
             }
 
@@ -565,7 +565,7 @@ int main(int argc, char *argv[]) {
             int i;
 
             if (d < argc) {
-                pa_log("Too many arguments.");
+                pa_log("Too many arguments.\n");
                 goto finish;
             }
 
@@ -585,7 +585,7 @@ int main(int argc, char *argv[]) {
         case PA_CMD_VERSION :
 
             if (d < argc) {
-                pa_log("Too many arguments.");
+                pa_log("Too many arguments.\n");
                 goto finish;
             }
 
@@ -597,7 +597,7 @@ int main(int argc, char *argv[]) {
             pid_t pid;
 
             if (d < argc) {
-                pa_log("Too many arguments.");
+                pa_log("Too many arguments.\n");
                 goto finish;
             }
 
@@ -614,7 +614,7 @@ int main(int argc, char *argv[]) {
         case PA_CMD_KILL:
 
             if (d < argc) {
-                pa_log("Too many arguments.");
+                pa_log("Too many arguments.\n");
                 goto finish;
             }
 
@@ -628,7 +628,7 @@ int main(int argc, char *argv[]) {
         case PA_CMD_CLEANUP_SHM:
 
             if (d < argc) {
-                pa_log("Too many arguments.");
+                pa_log("Too many arguments.\n");
                 goto finish;
             }
 
@@ -642,7 +642,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (d < argc) {
-        pa_log("Too many arguments.");
+        pa_log("Too many arguments.\n");
         goto finish;
     }
 
@@ -709,18 +709,18 @@ int main(int argc, char *argv[]) {
     }
 
     if (conf->system_instance && !conf->disallow_exit)
-        pa_log_warn(_("Running in system mode, but --disallow-exit not set."));
+        pa_log_warn(_("Running in system mode, but --disallow-exit not set!"));
 
     if (conf->system_instance && !conf->disallow_module_loading)
-        pa_log_warn(_("Running in system mode, but --disallow-module-loading not set."));
+        pa_log_warn(_("Running in system mode, but --disallow-module-loading not set!"));
 
     if (conf->system_instance && !conf->disable_shm) {
-        pa_log_notice(_("Running in system mode, forcibly disabling SHM mode."));
+        pa_log_notice(_("Running in system mode, forcibly disabling SHM mode!"));
         conf->disable_shm = true;
     }
 
     if (conf->system_instance && conf->exit_idle_time >= 0) {
-        pa_log_notice(_("Running in system mode, forcibly disabling exit idle time."));
+        pa_log_notice(_("Running in system mode, forcibly disabling exit idle time!"));
         conf->exit_idle_time = -1;
     }
 
@@ -918,7 +918,7 @@ int main(int argc, char *argv[]) {
 
     pa_log_debug("Found %u CPUs.", pa_ncpus());
 
-    pa_log_info("Page size is %zu bytes", pa_page_size());
+    pa_log_info("Page size is %lu bytes", (unsigned long) PA_PAGE_SIZE);
 
 #ifdef HAVE_VALGRIND_MEMCHECK_H
     pa_log_debug("Compiled with Valgrind support: yes");
@@ -971,7 +971,8 @@ int main(int argc, char *argv[]) {
     pa_log_info("Running in system mode: %s", pa_yes_no(pa_in_system_mode()));
 
     if (pa_in_system_mode())
-        pa_log_warn(_("OK, so you are running PA in system mode. Please make sure that you actually do want to do that.\n"
+        pa_log_warn(_("OK, so you are running PA in system mode. Please note that you most likely shouldn't be doing that.\n"
+                      "If you do it nonetheless then it's your own fault if things don't work as expected.\n"
                       "Please read http://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/WhatIsWrongWithSystemWide/ for an explanation why system mode is usually a bad idea."));
 
     if (conf->use_pid_file) {
@@ -997,9 +998,9 @@ int main(int argc, char *argv[]) {
     pa_disable_sigpipe();
 
     if (pa_rtclock_hrtimer())
-        pa_log_info("System supports high resolution timers");
+        pa_log_info("Fresh high-resolution timers available! Bon appetit!");
     else
-        pa_log_info("System appears to not support high resolution timers");
+        pa_log_info("Dude, your kernel stinks! The chef's recommendation today is Linux with high-resolution timers enabled!");
 
     if (conf->lock_memory) {
 #if defined(HAVE_SYS_MMAN_H) && !defined(__ANDROID__)
@@ -1016,9 +1017,7 @@ int main(int argc, char *argv[]) {
 
     pa_assert_se(mainloop = pa_mainloop_new());
 
-    if (!(c = pa_core_new(pa_mainloop_get_api(mainloop), !conf->disable_shm,
-                          !conf->disable_shm && !conf->disable_memfd && pa_memfd_is_locally_supported(),
-                          conf->shm_size))) {
+    if (!(c = pa_core_new(pa_mainloop_get_api(mainloop), !conf->disable_shm, conf->shm_size))) {
         pa_log(_("pa_core_new() failed."));
         goto finish;
     }
@@ -1030,7 +1029,6 @@ int main(int argc, char *argv[]) {
     c->default_fragment_size_msec = conf->default_fragment_size_msec;
     c->deferred_volume_safety_margin_usec = conf->deferred_volume_safety_margin_usec;
     c->deferred_volume_extra_delay_usec = conf->deferred_volume_extra_delay_usec;
-    c->lfe_crossover_freq = conf->lfe_crossover_freq;
     c->exit_idle_time = conf->exit_idle_time;
     c->scache_idle_time = conf->scache_idle_time;
     c->resample_method = conf->resample_method;
@@ -1083,7 +1081,7 @@ int main(int argc, char *argv[]) {
         if (r >= 0)
             r = pa_cli_command_execute(c, conf->script_commands, buf, &conf->fail);
 
-        pa_log_error("%s", s = pa_strbuf_to_string_free(buf));
+        pa_log_error("%s", s = pa_strbuf_tostring_free(buf));
         pa_xfree(s);
 
         if (r < 0 && conf->fail) {
@@ -1132,19 +1130,11 @@ int main(int argc, char *argv[]) {
 
     pa_log_info("Daemon startup complete.");
 
-#ifdef HAVE_SYSTEMD_DAEMON
-    sd_notify(0, "READY=1");
-#endif
-
     retval = 0;
     if (pa_mainloop_run(mainloop, &retval) < 0)
         goto finish;
 
     pa_log_info("Daemon shutdown initiated.");
-
-#ifdef HAVE_SYSTEMD_DAEMON
-    sd_notify(0, "STOPPING=1");
-#endif
 
 finish:
 #ifdef HAVE_DBUS

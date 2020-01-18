@@ -119,10 +119,8 @@ int pa_resampler_ffmpeg_init(pa_resampler *r) {
      * internally only uses these hardcoded values, so let's use them
      * here for now as well until ffmpeg makes this configurable. */
 
-    if (!(ffmpeg_data->state = av_resample_init((int) r->o_ss.rate, (int) r->i_ss.rate, 16, 10, 0, 0.8))) {
-        pa_xfree(ffmpeg_data);
+    if (!(ffmpeg_data->state = av_resample_init((int) r->o_ss.rate, (int) r->i_ss.rate, 16, 10, 0, 0.8)))
         return -1;
-    }
 
     r->impl.free = ffmpeg_free;
     r->impl.resample = ffmpeg_resample;

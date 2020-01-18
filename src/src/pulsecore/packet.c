@@ -25,52 +25,19 @@
 
 #include <pulse/xmalloc.h>
 #include <pulsecore/macro.h>
-#include <pulsecore/refcnt.h>
-#include <pulsecore/flist.h>
 
 #include "packet.h"
-
-#define MAX_APPENDED_SIZE 128
-
-struct pa_packet {
-    PA_REFCNT_DECLARE;
-    enum { PA_PACKET_APPENDED, PA_PACKET_DYNAMIC } type;
-    size_t length;
-    uint8_t *data;
-    union {
-        uint8_t appended[MAX_APPENDED_SIZE];
-    } per_type;
-};
-
-PA_STATIC_FLIST_DECLARE(packets, 0, pa_xfree);
 
 pa_packet* pa_packet_new(size_t length) {
     pa_packet *p;
 
     pa_assert(length > 0);
 
-    if (!(p = pa_flist_pop(PA_STATIC_FLIST_GET(packets))))
-        p = pa_xnew(pa_packet, 1);
+    p = pa_xmalloc(PA_ALIGN(sizeof(pa_packet)) + length);
     PA_REFCNT_INIT(p);
     p->length = length;
-    if (length > MAX_APPENDED_SIZE) {
-        p->data = pa_xmalloc(length);
-        p->type = PA_PACKET_DYNAMIC;
-    } else {
-        p->data = p->per_type.appended;
-        p->type = PA_PACKET_APPENDED;
-    }
-
-    return p;
-}
-
-pa_packet* pa_packet_new_data(const void* data, size_t length) {
-    pa_packet *p = pa_packet_new(length);
-
-    pa_assert(data);
-    pa_assert(length > 0);
-
-    memcpy(p->data, data, length);
+    p->data = (uint8_t*) p + PA_ALIGN(sizeof(pa_packet));
+    p->type = PA_PACKET_APPENDED;
 
     return p;
 }
@@ -81,24 +48,13 @@ pa_packet* pa_packet_new_dynamic(void* data, size_t length) {
     pa_assert(data);
     pa_assert(length > 0);
 
-    if (!(p = pa_flist_pop(PA_STATIC_FLIST_GET(packets))))
-        p = pa_xnew(pa_packet, 1);
+    p = pa_xnew(pa_packet, 1);
     PA_REFCNT_INIT(p);
     p->length = length;
     p->data = data;
     p->type = PA_PACKET_DYNAMIC;
 
     return p;
-}
-
-const void* pa_packet_data(pa_packet *p, size_t *l) {
-    pa_assert(PA_REFCNT_VALUE(p) >= 1);
-    pa_assert(p->data);
-    pa_assert(l);
-
-    *l = p->length;
-
-    return p->data;
 }
 
 pa_packet* pa_packet_ref(pa_packet *p) {
@@ -116,7 +72,6 @@ void pa_packet_unref(pa_packet *p) {
     if (PA_REFCNT_DEC(p) <= 0) {
         if (p->type == PA_PACKET_DYNAMIC)
             pa_xfree(p->data);
-        if (pa_flist_push(PA_STATIC_FLIST_GET(packets), p) < 0)
-            pa_xfree(p);
+        pa_xfree(p);
     }
 }

@@ -645,7 +645,7 @@ static void handle_add_entry(DBusConnection *conn, DBusMessage *msg, void *userd
         e->channel_map = map;
         e->volume_valid = !!map.channels;
 
-        device_updated = (e->device_valid != !!device[0]) || !pa_safe_streq(e->device, device);
+        device_updated = (e->device_valid != !!device[0]) || !pa_streq(e->device, device);
         pa_xfree(e->device);
         e->device = pa_xstrdup(device);
         e->device_valid = !!device[0];
@@ -757,7 +757,7 @@ static void handle_entry_set_device(DBusConnection *conn, DBusMessage *msg, DBus
 
     pa_assert_se(e = entry_read(de->userdata, de->entry_name));
 
-    updated = (e->device_valid != !!device[0]) || !pa_safe_streq(e->device, device);
+    updated = (e->device_valid != !!device[0]) || !pa_streq(e->device, device);
 
     if (updated) {
         pa_xfree(e->device);
@@ -992,7 +992,7 @@ static bool entry_write(struct userdata *u, const char *name, const struct entry
     pa_assert(name);
     pa_assert(e);
 
-    t = pa_tagstruct_new();
+    t = pa_tagstruct_new(NULL, 0);
     pa_tagstruct_putu8(t, e->version);
     pa_tagstruct_put_boolean(t, e->volume_valid);
     pa_tagstruct_put_channel_map(t, &e->channel_map);
@@ -1124,7 +1124,7 @@ static struct entry *entry_read(struct userdata *u, const char *name) {
     if (!pa_database_get(u->database, &key, &data))
         goto fail;
 
-    t = pa_tagstruct_new_fixed(data.data, data.size);
+    t = pa_tagstruct_new(data.data, data.size);
     e = entry_new();
 
     if (pa_tagstruct_getu8(t, &e->version) < 0 ||
@@ -1201,7 +1201,7 @@ static void trigger_save(struct userdata *u) {
     PA_IDXSET_FOREACH(c, u->subscribed, idx) {
         pa_tagstruct *t;
 
-        t = pa_tagstruct_new();
+        t = pa_tagstruct_new(NULL, 0);
         pa_tagstruct_putu32(t, PA_COMMAND_EXTENSION);
         pa_tagstruct_putu32(t, 0);
         pa_tagstruct_putu32(t, u->module->index);
@@ -2016,7 +2016,7 @@ static int extension_cb(pa_native_protocol *p, pa_module *m, pa_native_connectio
     if (pa_tagstruct_getu32(t, &command) < 0)
         goto fail;
 
-    reply = pa_tagstruct_new();
+    reply = pa_tagstruct_new(NULL, 0);
     pa_tagstruct_putu32(reply, PA_COMMAND_REPLY);
     pa_tagstruct_putu32(reply, tag);
 
@@ -2341,7 +2341,7 @@ static void clean_up_db(struct userdata *u) {
     PA_LLIST_FOREACH_SAFE(item, next, to_be_converted) {
         pa_log_debug("Upgrading a legacy entry to the current format: %s", item->entry_name);
 
-        pa_assert_se(entry_write(u, item->entry_name, item->entry, true));
+        pa_assert_se(entry_write(u, item->entry_name, item->entry, true) >= 0);
         trigger_save(u);
 
         PA_LLIST_REMOVE(struct clean_up_item, to_be_converted, item);
@@ -2397,31 +2397,31 @@ int pa__init(pa_module*m) {
     u->protocol = pa_native_protocol_get(m->core);
     pa_native_protocol_install_ext(u->protocol, m, extension_cb);
 
-    pa_module_hook_connect(m, &pa_native_protocol_hooks(u->protocol)[PA_NATIVE_HOOK_CONNECTION_UNLINK], PA_HOOK_NORMAL, (pa_hook_cb_t) connection_unlink_hook_cb, u);
+    u->connection_unlink_hook_slot = pa_hook_connect(&pa_native_protocol_hooks(u->protocol)[PA_NATIVE_HOOK_CONNECTION_UNLINK], PA_HOOK_NORMAL, (pa_hook_cb_t) connection_unlink_hook_cb, u);
 
     u->subscription = pa_subscription_new(m->core, PA_SUBSCRIPTION_MASK_SINK_INPUT|PA_SUBSCRIPTION_MASK_SOURCE_OUTPUT, subscribe_callback, u);
 
     if (restore_device) {
         /* A little bit earlier than module-intended-roles ... */
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SINK_INPUT_NEW], PA_HOOK_EARLY, (pa_hook_cb_t) sink_input_new_hook_callback, u);
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_EARLY, (pa_hook_cb_t) source_output_new_hook_callback, u);
+        u->sink_input_new_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_NEW], PA_HOOK_EARLY, (pa_hook_cb_t) sink_input_new_hook_callback, u);
+        u->source_output_new_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_NEW], PA_HOOK_EARLY, (pa_hook_cb_t) source_output_new_hook_callback, u);
     }
 
     if (restore_device && on_hotplug) {
         /* A little bit earlier than module-intended-roles ... */
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_LATE, (pa_hook_cb_t) sink_put_hook_callback, u);
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SOURCE_PUT], PA_HOOK_LATE, (pa_hook_cb_t) source_put_hook_callback, u);
+        u->sink_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_PUT], PA_HOOK_LATE, (pa_hook_cb_t) sink_put_hook_callback, u);
+        u->source_put_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SOURCE_PUT], PA_HOOK_LATE, (pa_hook_cb_t) source_put_hook_callback, u);
     }
 
     if (restore_device && on_rescue) {
         /* A little bit earlier than module-intended-roles, module-rescue-streams, ... */
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_LATE, (pa_hook_cb_t) sink_unlink_hook_callback, u);
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SOURCE_UNLINK], PA_HOOK_LATE, (pa_hook_cb_t) source_unlink_hook_callback, u);
+        u->sink_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_UNLINK], PA_HOOK_LATE, (pa_hook_cb_t) sink_unlink_hook_callback, u);
+        u->source_unlink_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SOURCE_UNLINK], PA_HOOK_LATE, (pa_hook_cb_t) source_unlink_hook_callback, u);
     }
 
     if (restore_volume || restore_muted) {
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SINK_INPUT_FIXATE], PA_HOOK_EARLY, (pa_hook_cb_t) sink_input_fixate_hook_callback, u);
-        pa_module_hook_connect(m, &m->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_FIXATE], PA_HOOK_EARLY, (pa_hook_cb_t) source_output_fixate_hook_callback, u);
+        u->sink_input_fixate_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SINK_INPUT_FIXATE], PA_HOOK_EARLY, (pa_hook_cb_t) sink_input_fixate_hook_callback, u);
+        u->source_output_fixate_hook_slot = pa_hook_connect(&m->core->hooks[PA_CORE_HOOK_SOURCE_OUTPUT_FIXATE], PA_HOOK_EARLY, (pa_hook_cb_t) source_output_fixate_hook_callback, u);
     }
 
     if (!(fname = pa_state_path("stream-volumes", true)))
@@ -2507,6 +2507,28 @@ void pa__done(pa_module*m) {
 
     if (u->subscription)
         pa_subscription_free(u->subscription);
+
+    if (u->sink_input_new_hook_slot)
+        pa_hook_slot_free(u->sink_input_new_hook_slot);
+    if (u->sink_input_fixate_hook_slot)
+        pa_hook_slot_free(u->sink_input_fixate_hook_slot);
+    if (u->source_output_new_hook_slot)
+        pa_hook_slot_free(u->source_output_new_hook_slot);
+    if (u->source_output_fixate_hook_slot)
+        pa_hook_slot_free(u->source_output_fixate_hook_slot);
+
+    if (u->sink_put_hook_slot)
+        pa_hook_slot_free(u->sink_put_hook_slot);
+    if (u->source_put_hook_slot)
+        pa_hook_slot_free(u->source_put_hook_slot);
+
+    if (u->sink_unlink_hook_slot)
+        pa_hook_slot_free(u->sink_unlink_hook_slot);
+    if (u->source_unlink_hook_slot)
+        pa_hook_slot_free(u->source_unlink_hook_slot);
+
+    if (u->connection_unlink_hook_slot)
+        pa_hook_slot_free(u->connection_unlink_hook_slot);
 
     if (u->save_time_event)
         u->core->mainloop->time_free(u->save_time_event);
