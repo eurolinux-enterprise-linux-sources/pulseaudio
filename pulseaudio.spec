@@ -25,7 +25,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        %{pa_major}%{?pa_minor:.%{pa_minor}}
-Release:        3%{?snap:.%{snap}git%{shortcommit}}%{?dist}
+Release:        5%{?snap:.%{snap}git%{shortcommit}}%{?dist}
 License:        LGPLv2+
 URL:            http://www.freedesktop.org/wiki/Software/PulseAudio
 %if 0%{?gitrel}
@@ -54,6 +54,11 @@ Patch2: pulseaudio-9.0-disable_flat_volumes.patch
 Patch3: pulseaudio-8.99.2-getaffinity.patch
 
 ## upstream patches
+Patch101: 0001-alsa-mixer-Add-support-for-usb-audio-in-the-Dell-doc.patch
+Patch102: 0002-sink-source-update-the-default-sink-source-on-port-s.patch
+Patch103: 0003-improve-default-sink-source-handling.patch
+Patch104: 0004-core-device-port-check-availability-when-choosing-th.patch
+Patch105: add-dell-dock-conf.path
 
 ## upstreamable patches
 
@@ -251,6 +256,11 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch1 -p1 -b .autostart
 %patch2 -p1 -b .disable_flat_volumes
 %patch3 -p1 -b .affinity
+%patch101 -p1 -b .101
+%patch102 -p1 -b .102
+%patch103 -p1 -b .103
+%patch104 -p1 -b .104
+%patch105 -p1 -b .105
 
 sed -i.no_consolekit -e \
   's/^load-module module-console-kit/#load-module module-console-kit/' \
@@ -591,6 +601,15 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
+* Tue Jan 16 2018 Wim Taymans <wtaymans@redhat.com> - 10.0-5
+- Dist the new config file for Dell dock TB16
+- Resolves: #1457385
+
+* Wed Aug 09 2017 Wim Taymans <wtaymans@redhat.com> - 10.0-4
+- Add support for usb audio in the Dell dock TB16
+- Add patches to improve default sinks
+- Resolves: #1457385
+
 * Thu Mar 09 2017 Wim Taymans <wtaymans@redhat.com> - 10.0-3
 - Add more Requires to avoid testing multiple versions
 - Resolves: #1387036

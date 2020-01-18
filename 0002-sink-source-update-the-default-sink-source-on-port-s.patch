@@ -1,0 +1,60 @@
+From 1e13b722545a23699479bb177648f30f7be396ca Mon Sep 17 00:00:00 2001
+From: Tanu Kaskinen <tanuk@iki.fi>
+Date: Sun, 7 May 2017 12:12:39 +0300
+Subject: [PATCH 2/4] sink, source: update the default sink/source on port
+ switches
+
+When sinks are compared during the default sink selection, the active
+port's availability is inspected. Therefore, the default sink should be
+updated when the active port changes, because the new port may have
+different availability status than the old port.
+
+For example, let's say that a laptop has an analog sink with a speaker
+and a headphone port, and headphones are initially plugged in, so both
+ports can be used[1]. The headphone port is initially the active port.
+There's also a null sink in the system. When the headphones are
+unplugged, the headphone port becomes unavailable, and the null sink
+becomes the new default sink. Then module-switch-on-connect changes the
+analog sink port to speakers. Now the default sink should change back to
+the analog sink, but that doesn't happen without this patch.
+
+[1] Actually we currently mark speakers as unavailable when headphones
+are plugged in, but that's not strictly necessary. My example relies on
+both ports being available initially, so the bug can't be reproduced
+with the current mixer configuration.
+---
+ src/pulsecore/sink.c   | 3 +++
+ src/pulsecore/source.c | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/src/pulsecore/sink.c b/src/pulsecore/sink.c
+index aa2182220..ebb13c2c9 100644
+--- a/src/pulsecore/sink.c
++++ b/src/pulsecore/sink.c
+@@ -3355,6 +3355,9 @@ int pa_sink_set_port(pa_sink *s, const char *name, bool save) {
+ 
+     pa_sink_set_port_latency_offset(s, s->active_port->latency_offset);
+ 
++    /* The active port affects the default sink selection. */
++    pa_core_update_default_sink(s->core);
++
+     pa_hook_fire(&s->core->hooks[PA_CORE_HOOK_SINK_PORT_CHANGED], s);
+ 
+     return 0;
+diff --git a/src/pulsecore/source.c b/src/pulsecore/source.c
+index 8ce781804..3f0f53b52 100644
+--- a/src/pulsecore/source.c
++++ b/src/pulsecore/source.c
+@@ -2630,6 +2630,9 @@ int pa_source_set_port(pa_source *s, const char *name, bool save) {
+     s->active_port = port;
+     s->save_port = save;
+ 
++    /* The active port affects the default source selection. */
++    pa_core_update_default_source(s->core);
++
+     pa_source_set_port_latency_offset(s, s->active_port->latency_offset);
+ 
+     pa_hook_fire(&s->core->hooks[PA_CORE_HOOK_SOURCE_PORT_CHANGED], s);
+-- 
+2.14.3
+

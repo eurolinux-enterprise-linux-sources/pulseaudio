@@ -1,0 +1,18 @@
+--- pulseaudio-10.0/src/Makefile.in	2017-01-18 04:54:18.000000000 +0100
++++ pulseaudio-10.0-new/src/Makefile.in	2018-01-16 11:45:09.881076974 +0100
+@@ -3009,6 +3009,7 @@
+ 	modules/alsa/mixer/paths/hdmi-output-7.conf
+ am__dist_alsaprofilesets_DATA_DIST =  \
+ 	modules/alsa/mixer/profile-sets/default.conf \
++	modules/alsa/mixer/profile-sets/dell-dock-tb16-usb-audio.conf \
+ 	modules/alsa/mixer/profile-sets/force-speaker.conf \
+ 	modules/alsa/mixer/profile-sets/force-speaker-and-int-mic.conf \
+ 	modules/alsa/mixer/profile-sets/maudio-fasttrack-pro.conf \
+@@ -4244,6 +4245,7 @@
+ libavahi_wrap_la_LIBADD = $(AM_LIBADD) $(AVAHI_CFLAGS) libpulsecore-@PA_MAJORMINOR@.la libpulsecommon-@PA_MAJORMINOR@.la libpulse.la
+ @HAVE_ALSA_TRUE@dist_alsaprofilesets_DATA = \
+ @HAVE_ALSA_TRUE@		modules/alsa/mixer/profile-sets/default.conf \
++@HAVE_ALSA_TRUE@		modules/alsa/mixer/profile-sets/dell-dock-tb16-usb-audio.conf \
+ @HAVE_ALSA_TRUE@		modules/alsa/mixer/profile-sets/force-speaker.conf \
+ @HAVE_ALSA_TRUE@		modules/alsa/mixer/profile-sets/force-speaker-and-int-mic.conf \
+ @HAVE_ALSA_TRUE@		modules/alsa/mixer/profile-sets/maudio-fasttrack-pro.conf \
