@@ -10,7 +10,7 @@
 Name:           pulseaudio
 Summary:        Improved Linux Sound Server
 Version:        %{pa_major}%{?pa_minor:.%{pa_minor}}
-Release:        8%{?snap:.%{snap}git%{shortcommit}}%{?dist}
+Release:        9%{?snap:.%{snap}git%{shortcommit}}%{?dist}
 License:        LGPLv2+
 URL:            http://www.freedesktop.org/wiki/Software/PulseAudio
 Source0:        http://freedesktop.org/software/pulseaudio/releases/pulseaudio-%{version}.tar.xz
@@ -26,6 +26,7 @@ Patch101: 0001-Avoid-multilib-conflict-in-usr-bin-padsp.patch
 Patch102: 0002-Add-korean-translation.patch
 Patch103: pulseaudio-autostart.patch
 Patch104: 0001-update-translations.patch
+Patch105: 0001-suspend-on-idle-resume-on-unload.patch
 
 BuildRequires:  automake libtool
 BuildRequires:  pkgconfig(bash-completion)
@@ -218,6 +219,7 @@ This package contains GDM integration hooks for the PulseAudio sound server.
 %patch102 -p1 -b .102
 %patch103 -p1 -b .103
 %patch104 -p1 -b .104
+%patch105 -p1 -b .105
 
 sed -i.no_consolekit -e \
   's/^load-module module-console-kit/#load-module module-console-kit/' \
@@ -542,6 +544,10 @@ exit 0
 %attr(0600, gdm, gdm) %{_localstatedir}/lib/gdm/.pulse/default.pa
 
 %changelog
+* Mon Mar 13 2017 Wim Taymans <wtaymans@redhat.com> - 6.0-9
+- suspend-on-idle: resume on unload
+- Resolves: #1430806
+
 * Mon Jun 27 2016 Wim Taymans <wtaymans@redhat.com> - 6.0-8
 - update translations
 - Resolves: #1272897

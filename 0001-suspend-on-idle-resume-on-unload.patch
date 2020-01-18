@@ -1,0 +1,46 @@
+From 8479e69deb546135b2f18cf56b2b111360244f22 Mon Sep 17 00:00:00 2001
+From: Wim Taymans <wtaymans@redhat.com>
+Date: Wed, 11 Jan 2017 12:50:13 +0100
+Subject: [PATCH] suspend-on-idle: resume on unload
+
+We need to resume all sinks we know about when unloading the module or
+else they will stay suspended forever.
+---
+ src/modules/module-suspend-on-idle.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/src/modules/module-suspend-on-idle.c b/src/modules/module-suspend-on-idle.c
+index 0a27a70..00c828a 100644
+--- a/src/modules/module-suspend-on-idle.c
++++ b/src/modules/module-suspend-on-idle.c
+@@ -495,6 +495,8 @@ fail:
+ 
+ void pa__done(pa_module*m) {
+     struct userdata *u;
++    struct device_info *d;
++    void *state;
+ 
+     pa_assert(m);
+ 
+@@ -539,6 +541,18 @@ void pa__done(pa_module*m) {
+     if (u->source_output_state_changed_slot)
+         pa_hook_slot_free(u->source_output_state_changed_slot);
+ 
++    PA_HASHMAP_FOREACH(d, u->device_infos, state) {
++        if (d->sink && pa_sink_get_state(d->sink) == PA_SINK_SUSPENDED) {
++            pa_log_debug("Resuming sink %s on module unload.", d->sink->name);
++            pa_sink_suspend(d->sink, false, PA_SUSPEND_IDLE);
++        }
++
++        if (d->source && pa_source_get_state(d->source) == PA_SOURCE_SUSPENDED) {
++            pa_log_debug("Resuming source %s on module unload.", d->source->name);
++            pa_source_suspend(d->source, false, PA_SUSPEND_IDLE);
++        }
++    }
++
+     pa_hashmap_free(u->device_infos);
+ 
+     pa_xfree(u);
+-- 
+2.9.3
+
